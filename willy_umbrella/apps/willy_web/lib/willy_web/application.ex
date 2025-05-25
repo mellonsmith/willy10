@@ -9,10 +9,10 @@ defmodule WillyWeb.Application do
   def start(_type, _args) do
     children = [
       WillyWeb.Telemetry,
-      # Start a worker by calling: WillyWeb.Worker.start_link(arg)
-      # {WillyWeb.Worker, arg},
-      # Start to serve requests, typically the last entry
-      WillyWeb.Endpoint
+      # Start the Endpoint (http/https)
+      WillyWeb.Endpoint,
+      # Start the game state process
+      WillyWeb.GameState
     ]
 
     # See https://hexdocs.pm/elixir/Supervisor.html
