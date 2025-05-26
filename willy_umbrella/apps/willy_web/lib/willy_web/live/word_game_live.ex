@@ -62,7 +62,7 @@ defmodule WillyWeb.WordGameLive do
     if socket.assigns.player_state == :active_player or socket.assigns.role == :host do
       WillyWeb.GameState.add_guess_word(socket.assigns.player_id, word)
     end
-    {:noreply, socket}
+    {:noreply, push_event(socket, "reset", %{id: "new-guess-word"})}
   end
 
   def handle_event("add_guess_word", _, socket), do: {:noreply, socket}
@@ -112,7 +112,7 @@ defmodule WillyWeb.WordGameLive do
       players: %{},
       game_status: :waiting,
       host_id: nil
-    )}
+     )}
   end
 
   def terminate(_reason, socket) do

@@ -63,14 +63,17 @@
           Guess Words (<%= length(@guess_words) %>/10)
         </label>
         <%= if @role == :host or (@game_status == :in_progress and @player_state == :active_player) do %>
-          <input
-            type="text"
-            id="new-guess-word"
-            phx-keydown="add_guess_word"
-            class="block w-full rounded-md border-gray-300 shadow-sm focus:border-indigo-500 focus:ring-indigo-500 text-lg py-3 px-4"
-            placeholder="Type and press Enter to add"
-            disabled={length(@guess_words) >= 10}
-          />
+          <.form :let={f} for={%{}} phx-submit="add_guess_word" phx-trigger-action={false}>
+            <input
+              type="text"
+              id="new-guess-word"
+              name="value"
+              phx-keydown="add_guess_word"
+              class="block w-full rounded-md border-gray-300 shadow-sm focus:border-indigo-500 focus:ring-indigo-500 text-lg py-3 px-4"
+              placeholder="Type and press Enter to add"
+              disabled={length(@guess_words) >= 10}
+            />
+          </.form>
         <% end %>
       </div>
 
@@ -95,13 +98,15 @@
         <% end %>
       </div>
 
-      <form phx-submit="start_game" class="mb-8">
-        <button
-          class="bg-green-600 text-white px-8 py-3 rounded text-xl font-bold disabled:opacity-50"
-          disabled={((@role || :spectator) != :host) or map_size(@players) < 3}>
-          Start Game
-        </button>
-      </form>
+      <%= if @role == :host do %>
+        <form phx-submit="start_game" class="mb-8" >
+          <button
+            class="bg-green-600 text-white px-8 py-3 rounded text-xl font-bold disabled:opacity-50"
+            disabled={map_size(@players) < 4}>
+            Start Game
+          </button>
+        </form>
+      <% end %>
     </div>
   <% end %>
 </div> 

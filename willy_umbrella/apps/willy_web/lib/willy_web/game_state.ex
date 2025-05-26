@@ -179,8 +179,8 @@ defmodule WillyWeb.GameState do
           game_status: :in_progress
         }
 
-        broadcast_state(new_state)
-        {:noreply, new_state}
+      broadcast_state(new_state)
+      {:noreply, new_state}
       end
     end
   end
