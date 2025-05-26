@@ -2,6 +2,7 @@ defmodule WillyWeb.WordGameLive do
   use WillyWeb, :live_view
 
   @topic "word_game"
+  @host_id "host"
 
   def mount(_params, _session, socket) do
     # Everyone starts as a spectator
@@ -121,6 +122,6 @@ defmodule WillyWeb.WordGameLive do
   end
 
   defp host_exists?(players) do
-    Map.keys(players) != []
+    Enum.any?(players, fn {id, _info} -> id == @host_id end)
   end
 end
