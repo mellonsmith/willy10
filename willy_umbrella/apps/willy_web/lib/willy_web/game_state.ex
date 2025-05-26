@@ -12,7 +12,7 @@ defmodule WillyWeb.GameState do
       main_word: "",
       guess_words: [],
       host_id: nil,
-      players: %{}, # Map of player_id to player name
+      players: %{}, # Map of player_id => %{name: ..., state: ...}
       game_status: :waiting # :waiting, :in_progress, :finished
     }
     GenServer.start_link(__MODULE__, initial_state, name: __MODULE__)
@@ -42,6 +42,10 @@ defmodule WillyWeb.GameState do
     GenServer.cast(__MODULE__, {:remove_guess_word, player_id, index})
   end
 
+  def start_game do
+    GenServer.cast(__MODULE__, :start_game)
+  end
+
   # Server Callbacks
 
   @impl true
@@ -61,7 +65,7 @@ defmodule WillyWeb.GameState do
       role == :host and is_nil(state.host_id) ->
         new_state = %{state |
           host_id: player_id,
-          players: Map.put(state.players, player_id, name)
+          players: Map.put(state.players, player_id, %{name: name, state: :waiting})
         }
         broadcast_state(new_state)
         {:reply, {:ok, :host}, new_state}
@@ -80,7 +84,7 @@ defmodule WillyWeb.GameState do
 
       # Join as player
       true ->
-        new_state = %{state | players: Map.put(state.players, player_id, name)}
+        new_state = %{state | players: Map.put(state.players, player_id, %{name: name, state: :waiting})}
         broadcast_state(new_state)
         {:reply, {:ok, :player}, new_state}
     end
@@ -89,7 +93,7 @@ defmodule WillyWeb.GameState do
   @impl true
   def handle_cast({:leave_game, player_id}, state) do
     if player_id == state.host_id do
-      # If host leaves, reset the game
+      # If host leaves, disconnect all players and reset the game
       new_state = %{
         main_word: "",
         guess_words: [],
@@ -98,6 +102,8 @@ defmodule WillyWeb.GameState do
         game_status: :waiting
       }
       broadcast_state(new_state)
+      # Broadcast a special message to disconnect all players
+      Phoenix.PubSub.broadcast(Willy.PubSub, @topic, :host_disconnected)
       {:noreply, new_state}
     else
       new_state = %{state | players: Map.delete(state.players, player_id)}
@@ -121,7 +127,9 @@ defmodule WillyWeb.GameState do
   def handle_cast({:add_guess_word, player_id, word}, state) do
     if Map.has_key?(state.players, player_id) and
        length(state.guess_words) < 10 and
-       word not in state.guess_words do
+       word not in state.guess_words and
+       (player_id == state.host_id or
+        (state.game_status == :in_progress and Map.get(state.players, player_id).state == :active_player)) do
       new_state = %{state | guess_words: state.guess_words ++ [word]}
       broadcast_state(new_state)
       {:noreply, new_state}
@@ -132,12 +140,48 @@ defmodule WillyWeb.GameState do
 
   @impl true
   def handle_cast({:remove_guess_word, player_id, index}, state) do
-    if Map.has_key?(state.players, player_id) do
+    if Map.has_key?(state.players, player_id) and
+       (player_id == state.host_id or
+        (state.game_status == :in_progress and Map.get(state.players, player_id).state == :active_player)) do
       new_state = %{state | guess_words: List.delete_at(state.guess_words, index)}
       broadcast_state(new_state)
       {:noreply, new_state}
     else
       {:noreply, state}
+    end
+  end
+
+  @impl true
+  def handle_cast(:start_game, state) do
+    player_ids = Map.keys(state.players)
+    if player_ids == [] do
+      {:noreply, state}
+    else
+      # Filter out the host from potential active players
+      potential_active_players = Enum.reject(player_ids, &(&1 == state.host_id))
+
+      if potential_active_players == [] do
+        {:noreply, state}
+      else
+        # Select a random active player from non-host players
+        [active_id | _] = Enum.shuffle(potential_active_players)
+
+        # First set all players to passive
+        new_players = Map.new(state.players, fn {id, info} ->
+          {id, %{info | state: :passive_player}}
+        end)
+
+        # Then set the selected player as active
+        new_players = Map.put(new_players, active_id, %{state.players[active_id] | state: :active_player})
+
+        new_state = %{state |
+          players: new_players,
+          game_status: :in_progress
+        }
+
+        broadcast_state(new_state)
+        {:noreply, new_state}
+      end
     end
   end
 
