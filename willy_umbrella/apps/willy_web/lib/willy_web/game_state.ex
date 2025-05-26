@@ -4,6 +4,7 @@ defmodule WillyWeb.GameState do
   @topic "word_game"
   @min_players 3
   @max_players 5
+  @timer_duration 60
 
   # Client API
 
@@ -13,7 +14,20 @@ defmodule WillyWeb.GameState do
       guess_words: [],
       host_id: nil,
       players: %{}, # Map of player_id => %{name: ..., state: ...}
-      game_status: :waiting # :waiting, :in_progress, :finished
+      game_status: :waiting, # :waiting, :in_progress, :finished
+      current_round: 0,
+      round_order: [],
+      rounds_completed: [],
+      current_phase: :choose, # :choose, :guessing, :revealing
+      guessing_order: [],
+      current_guessing_player: nil,
+      guessing_completed: [],
+      found_words: %{}, # Map of player_id => list of found word indices
+      timer_state: :stopped, # :stopped, :running
+      timer_start: nil,
+      timer_duration: @timer_duration,
+      revealed_words: MapSet.new(), # Set of revealed word indices
+      word_guesses: %{} # Map of word_index => list of player_ids who found it
     }
     GenServer.start_link(__MODULE__, initial_state, name: __MODULE__)
   end
@@ -44,6 +58,38 @@ defmodule WillyWeb.GameState do
 
   def start_game do
     GenServer.cast(__MODULE__, :start_game)
+  end
+
+  def next_phase do
+    GenServer.cast(__MODULE__, :next_phase)
+  end
+
+  def next_guessing_player do
+    GenServer.cast(__MODULE__, :next_guessing_player)
+  end
+
+  def toggle_found_word(player_id, word_index) do
+    GenServer.cast(__MODULE__, {:toggle_found_word, player_id, word_index})
+  end
+
+  def start_timer do
+    GenServer.cast(__MODULE__, :start_timer)
+  end
+
+  def skip_timer do
+    GenServer.cast(__MODULE__, :skip_timer)
+  end
+
+  def reset_timer do
+    GenServer.cast(__MODULE__, :reset_timer)
+  end
+
+  def reveal_word(word_index) do
+    GenServer.cast(__MODULE__, {:reveal_word, word_index})
+  end
+
+  def reveal_all_words do
+    GenServer.cast(__MODULE__, :reveal_all_words)
   end
 
   # Server Callbacks
@@ -99,7 +145,20 @@ defmodule WillyWeb.GameState do
         guess_words: [],
         host_id: nil,
         players: %{},
-        game_status: :waiting
+        game_status: :waiting,
+        current_round: 0,
+        round_order: [],
+        rounds_completed: [],
+        current_phase: :choose,
+        guessing_order: [],
+        current_guessing_player: nil,
+        guessing_completed: [],
+        found_words: %{},
+        timer_state: :stopped,
+        timer_start: nil,
+        timer_duration: @timer_duration,
+        revealed_words: MapSet.new(),
+        word_guesses: %{}
       }
       broadcast_state(new_state)
       # Broadcast a special message to disconnect all players
@@ -114,7 +173,7 @@ defmodule WillyWeb.GameState do
 
   @impl true
   def handle_cast({:update_main_word, player_id, word}, state) do
-    if player_id == state.host_id do
+    if player_id == state.host_id and state.current_phase == :choose do
       new_state = %{state | main_word: word}
       broadcast_state(new_state)
       {:noreply, new_state}
@@ -129,7 +188,9 @@ defmodule WillyWeb.GameState do
        length(state.guess_words) < 10 and
        word not in state.guess_words and
        (player_id == state.host_id or
-        (state.game_status == :in_progress and Map.get(state.players, player_id).state == :active_player)) do
+        (state.game_status == :in_progress and
+         state.current_phase == :choose and
+         Map.get(state.players, player_id).state == :active_player)) do
       new_state = %{state | guess_words: state.guess_words ++ [word]}
       broadcast_state(new_state)
       {:noreply, new_state}
@@ -142,7 +203,9 @@ defmodule WillyWeb.GameState do
   def handle_cast({:remove_guess_word, player_id, index}, state) do
     if Map.has_key?(state.players, player_id) and
        (player_id == state.host_id or
-        (state.game_status == :in_progress and Map.get(state.players, player_id).state == :active_player)) do
+        (state.game_status == :in_progress and
+         state.current_phase == :choose and
+         Map.get(state.players, player_id).state == :active_player)) do
       new_state = %{state | guess_words: List.delete_at(state.guess_words, index)}
       broadcast_state(new_state)
       {:noreply, new_state}
@@ -163,25 +226,240 @@ defmodule WillyWeb.GameState do
       if potential_active_players == [] do
         {:noreply, state}
       else
-        # Select a random active player from non-host players
-        [active_id | _] = Enum.shuffle(potential_active_players)
+        # Shuffle the order of players for rounds
+        round_order = Enum.shuffle(potential_active_players)
+        [first_active | _] = round_order
 
-        # First set all players to passive
+        # Set all players to passive
         new_players = Map.new(state.players, fn {id, info} ->
           {id, %{info | state: :passive_player}}
         end)
 
-        # Then set the selected player as active
-        new_players = Map.put(new_players, active_id, %{state.players[active_id] | state: :active_player})
+        # Set first player as active
+        new_players = Map.put(new_players, first_active, %{state.players[first_active] | state: :active_player})
 
         new_state = %{state |
           players: new_players,
-          game_status: :in_progress
+          game_status: :in_progress,
+          current_round: 1,
+          round_order: round_order,
+          rounds_completed: [first_active],
+          current_phase: :choose,
+          guessing_order: [],
+          current_guessing_player: nil,
+          guessing_completed: [],
+          found_words: %{},
+          revealed_words: MapSet.new(),
+          word_guesses: %{}
         }
 
+        broadcast_state(new_state)
+        {:noreply, new_state}
+      end
+    end
+  end
+
+  @impl true
+  def handle_cast(:start_timer, state) do
+    if state.current_phase == :guessing and state.timer_state == :stopped do
+      new_state = %{state |
+        timer_state: :running,
+        timer_start: System.system_time(:second)
+      }
       broadcast_state(new_state)
       {:noreply, new_state}
+    else
+      {:noreply, state}
+    end
+  end
+
+  @impl true
+  def handle_cast(:skip_timer, state) do
+    if state.current_phase == :guessing and state.timer_state == :running do
+      new_state = %{state | timer_state: :stopped}
+      broadcast_state(new_state)
+      {:noreply, new_state}
+    else
+      {:noreply, state}
+    end
+  end
+
+  @impl true
+  def handle_cast(:reset_timer, state) do
+    if state.current_phase == :guessing do
+      new_state = %{state |
+        timer_state: :stopped,
+        timer_start: nil
+      }
+      broadcast_state(new_state)
+      {:noreply, new_state}
+    else
+      {:noreply, state}
+    end
+  end
+
+  @impl true
+  def handle_cast(:next_phase, state) do
+    if state.game_status != :in_progress do
+      {:noreply, state}
+    else
+      case state.current_phase do
+        :choose ->
+          # Move to guessing phase
+          # Get all players except host and active player
+          guessing_players = state.round_order -- [state.host_id, hd(state.rounds_completed)]
+          [first_guesser | _] = guessing_players
+
+          new_state = %{state |
+            current_phase: :guessing,
+            guessing_order: guessing_players,
+            current_guessing_player: first_guesser,
+            guessing_completed: [],
+            found_words: %{}, # Reset found words for new guessing phase
+            timer_state: :stopped,
+            timer_start: nil,
+            revealed_words: MapSet.new(),
+            word_guesses: %{}
+          }
+          broadcast_state(new_state)
+          {:noreply, new_state}
+
+        :guessing ->
+          # Move to revealing phase
+          new_state = %{state |
+            current_phase: :revealing,
+            revealed_words: MapSet.new()
+          }
+          broadcast_state(new_state)
+          {:noreply, new_state}
+
+        :revealing ->
+          # Move to next round
+          remaining_players = state.round_order -- state.rounds_completed
+
+          if remaining_players == [] do
+            # Game is finished
+            new_state = %{state | game_status: :finished}
+            broadcast_state(new_state)
+            {:noreply, new_state}
+          else
+            [next_active | _] = remaining_players
+
+            # Set all players to passive
+            new_players = Map.new(state.players, fn {id, info} ->
+              {id, %{info | state: :passive_player}}
+            end)
+
+            # Set next player as active
+            new_players = Map.put(new_players, next_active, %{state.players[next_active] | state: :active_player})
+
+            new_state = %{state |
+              players: new_players,
+              current_round: state.current_round + 1,
+              rounds_completed: [next_active | state.rounds_completed],
+              main_word: "",
+              guess_words: [],
+              current_phase: :choose,
+              guessing_order: [],
+              current_guessing_player: nil,
+              guessing_completed: [],
+              found_words: %{},
+              revealed_words: MapSet.new(),
+              word_guesses: %{}
+            }
+
+            broadcast_state(new_state)
+            {:noreply, new_state}
+          end
       end
+    end
+  end
+
+  @impl true
+  def handle_cast(:next_guessing_player, state) do
+    if state.current_phase != :guessing do
+      {:noreply, state}
+    else
+      remaining_guessers = state.guessing_order -- state.guessing_completed
+
+      if remaining_guessers == [] do
+        # All players have guessed, move to next phase
+        new_state = %{state | current_phase: :revealing}
+        broadcast_state(new_state)
+        {:noreply, new_state}
+      else
+        [next_guesser | _] = remaining_guessers
+
+        new_state = %{state |
+          current_guessing_player: next_guesser,
+          guessing_completed: [next_guesser | state.guessing_completed],
+          timer_state: :stopped,
+          timer_start: nil
+        }
+
+        broadcast_state(new_state)
+        {:noreply, new_state}
+      end
+    end
+  end
+
+  @impl true
+  def handle_cast({:toggle_found_word, player_id, word_index}, state) do
+    if state.current_phase == :guessing and player_id == state.current_guessing_player do
+      current_found = Map.get(state.found_words, player_id, [])
+      new_found = if word_index in current_found do
+        Enum.reject(current_found, &(&1 == word_index))
+      else
+        [word_index | current_found]
+      end
+
+      # Update word_guesses when a word is found
+      word_guesses = if word_index in current_found do
+        # Remove player from word_guesses if unmarking
+        Map.update(state.word_guesses, word_index, [], fn players ->
+          Enum.reject(players, &(&1 == player_id))
+        end)
+      else
+        # Add player to word_guesses if marking
+        Map.update(state.word_guesses, word_index, [player_id], fn players ->
+          [player_id | players]
+        end)
+      end
+
+      new_state = %{state |
+        found_words: Map.put(state.found_words, player_id, new_found),
+        word_guesses: word_guesses
+      }
+      broadcast_state(new_state)
+      {:noreply, new_state}
+    else
+      {:noreply, state}
+    end
+  end
+
+  @impl true
+  def handle_cast({:reveal_word, word_index}, state) do
+    if state.current_phase == :revealing and state.host_id do
+      new_state = %{state |
+        revealed_words: MapSet.put(state.revealed_words, word_index)
+      }
+      broadcast_state(new_state)
+      {:noreply, new_state}
+    else
+      {:noreply, state}
+    end
+  end
+
+  @impl true
+  def handle_cast(:reveal_all_words, state) do
+    if state.current_phase == :revealing and state.host_id do
+      new_state = %{state |
+        revealed_words: MapSet.new(0..(length(state.guess_words) - 1))
+      }
+      broadcast_state(new_state)
+      {:noreply, new_state}
+    else
+      {:noreply, state}
     end
   end
 

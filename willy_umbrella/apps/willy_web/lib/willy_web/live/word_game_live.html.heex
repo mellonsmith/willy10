@@ -39,6 +39,59 @@
     </div>
 
     <div class="space-y-10">
+      <%= if @game_status == :in_progress do %>
+        <div class="text-center">
+          <h2 class="text-2xl font-bold">Round <%= @current_round %></h2>
+          <p class="text-lg text-gray-600">
+            <%= case @current_phase do %>
+              <% :choose -> %>
+                Choose Phase
+              <% :guessing -> %>
+                Guessing Phase
+                <%= if @current_guessing_player do %>
+                  <span class="font-semibold">
+                    - <%= @players[@current_guessing_player].name %> is guessing
+                  </span>
+                <% end %>
+                <%= if (@role == :host or @player_id == @current_guessing_player or @player_state == :active_player) and @current_phase == :guessing do %>
+                  <div class="mt-2">
+                    <span class={[
+                      "text-2xl font-mono",
+                      @timer_state == :running && "text-red-600"
+                    ]}>
+                      <%= @time_remaining %>
+                    </span>
+                    <%= if @role == :host do %>
+                      <div class="mt-2 space-x-2">
+                        <%= if @timer_state == :stopped do %>
+                          <button
+                            phx-click="start_timer"
+                            class="bg-green-600 text-white px-4 py-2 rounded text-lg font-bold">
+                            Start Timer
+                          </button>
+                        <% else %>
+                          <button
+                            phx-click="skip_timer"
+                            class="bg-yellow-600 text-white px-4 py-2 rounded text-lg font-bold">
+                            Skip Timer
+                          </button>
+                        <% end %>
+                        <button
+                          phx-click="reset_timer"
+                          class="bg-gray-600 text-white px-4 py-2 rounded text-lg font-bold">
+                          Reset Timer
+                        </button>
+                      </div>
+                    <% end %>
+                  </div>
+                <% end %>
+              <% :revealing -> %>
+                Revealing Phase
+            <% end %>
+          </p>
+        </div>
+      <% end %>
+
       <div>
         <label class="block text-lg font-medium text-gray-700 mb-3">
           Main Word <%= if @role == :host, do: "(You can edit this)" %>
@@ -50,10 +103,24 @@
             phx-keyup="update_main_word"
             class="block w-full rounded-md border-gray-300 shadow-sm focus:border-indigo-500 focus:ring-indigo-500 text-xl py-3 px-4"
             placeholder="Enter the main word"
+            disabled={@current_phase != :choose}
           />
         <% else %>
           <div class="block w-full rounded-md border border-gray-300 bg-gray-50 px-4 py-3 text-xl">
-            <%= if @main_word == "", do: "Waiting for host to enter a word...", else: (@player_state == :active_player && @main_word) || "Waiting for your turn..." %>
+            <%= cond do %>
+              <% @main_word == "" -> %>
+                Waiting for host to enter a word...
+              <% @current_phase == :revealing -> %>
+                <%= @main_word %>
+              <% @current_phase == :guessing and @current_guessing_player == @player_id and @timer_state == :running -> %>
+                <%= @main_word %>
+              <% @player_state == :active_player -> %>
+                <%= @main_word %>
+              <% @role == :host -> %>
+                <%= @main_word %>
+              <% true -> %>
+                Waiting for your turn...
+            <% end %>
           </div>
         <% end %>
       </div>
@@ -62,7 +129,7 @@
         <label class="block text-lg font-medium text-gray-700 mb-3">
           Guess Words (<%= length(@guess_words) %>/10)
         </label>
-        <%= if @role == :host or (@game_status == :in_progress and @player_state == :active_player) do %>
+        <%= if (@role == :host or (@game_status == :in_progress and @player_state == :active_player)) and @current_phase == :choose do %>
           <.form :let={f} for={%{}} phx-submit="add_guess_word" phx-trigger-action={false}>
             <input
               type="text"
@@ -79,11 +146,44 @@
 
       <div class="grid grid-cols-5 grid-rows-2 gap-x-2 gap-y-10 justify-items-center">
         <%= for {word, index} <- Enum.with_index(Enum.concat(@guess_words, List.duplicate(nil, 10 - length(@guess_words)))) do %>
-          <div class="flex flex-col items-center justify-center h-56 w-full min-w-[160px] max-w-[260px] bg-gray-100 rounded-xl border border-gray-300 relative">
+          <div class={[
+            "flex flex-col items-center justify-center h-56 w-full min-w-[160px] max-w-[260px] bg-gray-100 rounded-xl border border-gray-300 relative cursor-pointer",
+            @current_phase == :guessing and @role == :host and "hover:bg-gray-200",
+            @current_phase == :guessing and @role == :host and index in Map.get(@found_words, @current_guessing_player, []) and "bg-green-100 border-green-500",
+            @current_phase == :guessing and @player_state == :active_player and index in Map.get(@found_words, @current_guessing_player, []) and "bg-green-100 border-green-500",
+            @current_phase == :revealing and index in @revealed_words and "bg-blue-100 border-blue-500"
+          ]}
+          phx-click={cond do
+            @current_phase == :guessing and @role == :host -> "toggle_found_word"
+            @current_phase == :revealing and @role == :host -> "reveal_word"
+            true -> nil
+          end}
+          phx-value-index={index}>
             <span class="text-2xl font-semibold">
-              <%= if @role == :host or (@game_status == :in_progress and @player_state == :active_player), do: (word || ""), else: "" %>
+              <%= cond do %>
+                <% @current_phase == :revealing and index in @revealed_words -> %>
+                  <%= word || "" %>
+                <% @role == :host -> %>
+                  <%= word || "" %>
+                <% @player_state == :active_player -> %>
+                  <%= word || "" %>
+                <% true -> %>
+                  ""
+              <% end %>
             </span>
-            <%= if not is_nil(word) and (@role == :host or (@game_status == :in_progress and @player_state == :active_player)) do %>
+            <%= if @current_phase == :revealing and index in @revealed_words and Map.get(@word_guesses, index, []) != [] do %>
+              <div class="mt-2 text-sm text-gray-600">
+                Found by:
+                <div class="mt-1">
+                  <%= for player_id <- Map.get(@word_guesses, index, []) do %>
+                    <div class="text-blue-600">
+                      <%= @players[player_id].name %>
+                    </div>
+                  <% end %>
+                </div>
+              </div>
+            <% end %>
+            <%= if not is_nil(word) and (@role == :host or (@game_status == :in_progress and @player_state == :active_player and @current_phase == :choose)) do %>
               <button
                 type="button"
                 phx-click="remove_guess_word"
@@ -99,13 +199,47 @@
       </div>
 
       <%= if @role == :host do %>
-        <form phx-submit="start_game" class="mb-8" >
-          <button
-            class="bg-green-600 text-white px-8 py-3 rounded text-xl font-bold disabled:opacity-50"
-            disabled={map_size(@players) < 4}>
-            Start Game
-          </button>
-        </form>
+        <%= if @game_status == :waiting do %>
+          <form phx-submit="start_game" class="mb-8">
+            <button
+              class="bg-green-600 text-white px-8 py-3 rounded text-xl font-bold disabled:opacity-50"
+              disabled={map_size(@players) < 4}>
+              Start Game
+            </button>
+          </form>
+        <% else %>
+          <%= if @game_status == :in_progress do %>
+            <div class="flex gap-4 justify-center">
+              <%= if @current_phase == :guessing do %>
+                <form phx-submit="next_guessing_player" class="mb-8">
+                  <button
+                    class="bg-blue-600 text-white px-8 py-3 rounded text-xl font-bold"
+                    type="submit">
+                    Next Player
+                  </button>
+                </form>
+              <% end %>
+              <%= if @current_phase == :revealing do %>
+                <form phx-submit="reveal_all_words" class="mb-8">
+                  <button
+                    class="bg-purple-600 text-white px-8 py-3 rounded text-xl font-bold"
+                    type="submit">
+                    Reveal All
+                  </button>
+                </form>
+              <% end %>
+              <%= if @current_phase != :guessing do %>
+                <form phx-submit="next_phase" class="mb-8">
+                  <button
+                    class="bg-green-600 text-white px-8 py-3 rounded text-xl font-bold"
+                    type="submit">
+                    <%= if @current_phase == :choose, do: "Next Phase", else: "Next Round" %>
+                  </button>
+                </form>
+              <% end %>
+            </div>
+          <% end %>
+        <% end %>
       <% end %>
     </div>
   <% end %>
