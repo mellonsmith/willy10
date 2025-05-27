@@ -1,0 +1,20 @@
+[Unit]
+Description=Willy Phoenix Application
+After=network.target
+
+[Service]
+Type=simple
+User=your-user
+WorkingDirectory=/path/to/app
+Environment=PHX_HOST=your-domain.com
+Environment=PORT=4000
+Environment=SECRET_KEY_BASE=your-secret-key
+Environment=DATABASE_URL=ecto://username:password@localhost/database_name
+Environment=POOL_SIZE=10
+ExecStart=/path/to/app/bin/willy start
+ExecStop=/path/to/app/bin/willy stop
+Restart=on-failure
+RestartSec=5
+
+[Install]
+WantedBy=multi-user.target 

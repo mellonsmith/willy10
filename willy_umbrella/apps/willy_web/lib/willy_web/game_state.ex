@@ -13,7 +13,7 @@ defmodule WillyWeb.GameState do
       main_word: "",
       guess_words: [],
       host_id: nil,
-      players: %{}, # Map of player_id => %{name: ..., state: ...}
+      players: %{}, # Map of player_id => %{name: ..., state: ..., points: 0}
       game_status: :waiting, # :waiting, :in_progress, :finished
       current_round: 0,
       round_order: [],
@@ -27,7 +27,9 @@ defmodule WillyWeb.GameState do
       timer_start: nil,
       timer_duration: @timer_duration,
       revealed_words: MapSet.new(), # Set of revealed word indices
-      word_guesses: %{} # Map of word_index => list of player_ids who found it
+      word_guesses: %{}, # Map of word_index => list of player_ids who found it
+      word_creators: %{}, # Map of word_index => player_id who created it
+      rankings: [] # List of {player_id, points} tuples sorted by points
     }
     GenServer.start_link(__MODULE__, initial_state, name: __MODULE__)
   end
@@ -92,6 +94,14 @@ defmodule WillyWeb.GameState do
     GenServer.cast(__MODULE__, :reveal_all_words)
   end
 
+  def start_new_game do
+    GenServer.cast(__MODULE__, :start_new_game)
+  end
+
+  def end_session do
+    GenServer.cast(__MODULE__, :end_session)
+  end
+
   # Server Callbacks
 
   @impl true
@@ -111,7 +121,7 @@ defmodule WillyWeb.GameState do
       role == :host and is_nil(state.host_id) ->
         new_state = %{state |
           host_id: player_id,
-          players: Map.put(state.players, player_id, %{name: name, state: :waiting})
+          players: Map.put(state.players, player_id, %{name: name, state: :waiting, points: 0})
         }
         broadcast_state(new_state)
         {:reply, {:ok, :host}, new_state}
@@ -130,7 +140,7 @@ defmodule WillyWeb.GameState do
 
       # Join as player
       true ->
-        new_state = %{state | players: Map.put(state.players, player_id, %{name: name, state: :waiting})}
+        new_state = %{state | players: Map.put(state.players, player_id, %{name: name, state: :waiting, points: 0})}
         broadcast_state(new_state)
         {:reply, {:ok, :player}, new_state}
     end
@@ -158,7 +168,9 @@ defmodule WillyWeb.GameState do
         timer_start: nil,
         timer_duration: @timer_duration,
         revealed_words: MapSet.new(),
-        word_guesses: %{}
+        word_guesses: %{},
+        word_creators: %{},
+        rankings: []
       }
       broadcast_state(new_state)
       # Broadcast a special message to disconnect all players
@@ -191,7 +203,11 @@ defmodule WillyWeb.GameState do
         (state.game_status == :in_progress and
          state.current_phase == :choose and
          Map.get(state.players, player_id).state == :active_player)) do
-      new_state = %{state | guess_words: state.guess_words ++ [word]}
+      new_word_index = length(state.guess_words)
+      new_state = %{state |
+        guess_words: state.guess_words ++ [word],
+        word_creators: Map.put(state.word_creators, new_word_index, player_id)
+      }
       broadcast_state(new_state)
       {:noreply, new_state}
     else
@@ -250,7 +266,8 @@ defmodule WillyWeb.GameState do
           guessing_completed: [],
           found_words: %{},
           revealed_words: MapSet.new(),
-          word_guesses: %{}
+          word_guesses: %{},
+          word_creators: %{}
         }
 
         broadcast_state(new_state)
@@ -334,24 +351,32 @@ defmodule WillyWeb.GameState do
           {:noreply, new_state}
 
         :revealing ->
+          # Calculate points for this round
+          new_players = calculate_round_points(state)
+
           # Move to next round
           remaining_players = state.round_order -- state.rounds_completed
 
           if remaining_players == [] do
-            # Game is finished
-            new_state = %{state | game_status: :finished}
+            # Game is finished - calculate final rankings
+            rankings = calculate_final_rankings(new_players)
+            new_state = %{state |
+              game_status: :finished,
+              players: new_players,
+              rankings: rankings
+            }
             broadcast_state(new_state)
             {:noreply, new_state}
           else
             [next_active | _] = remaining_players
 
             # Set all players to passive
-            new_players = Map.new(state.players, fn {id, info} ->
+            new_players = Map.new(new_players, fn {id, info} ->
               {id, %{info | state: :passive_player}}
             end)
 
             # Set next player as active
-            new_players = Map.put(new_players, next_active, %{state.players[next_active] | state: :active_player})
+            new_players = Map.put(new_players, next_active, %{new_players[next_active] | state: :active_player})
 
             new_state = %{state |
               players: new_players,
@@ -365,7 +390,8 @@ defmodule WillyWeb.GameState do
               guessing_completed: [],
               found_words: %{},
               revealed_words: MapSet.new(),
-              word_guesses: %{}
+              word_guesses: %{},
+              word_creators: %{}
             }
 
             broadcast_state(new_state)
@@ -380,11 +406,21 @@ defmodule WillyWeb.GameState do
     if state.current_phase != :guessing do
       {:noreply, state}
     else
-      remaining_guessers = state.guessing_order -- state.guessing_completed
+      # If we're on the first player, add them to guessing_completed
+      guessing_completed = if state.current_guessing_player && state.current_guessing_player not in state.guessing_completed do
+        [state.current_guessing_player | state.guessing_completed]
+      else
+        state.guessing_completed
+      end
+
+      remaining_guessers = state.guessing_order -- guessing_completed
 
       if remaining_guessers == [] do
         # All players have guessed, move to next phase
-        new_state = %{state | current_phase: :revealing}
+        new_state = %{state |
+          current_phase: :revealing,
+          guessing_completed: guessing_completed
+        }
         broadcast_state(new_state)
         {:noreply, new_state}
       else
@@ -392,7 +428,7 @@ defmodule WillyWeb.GameState do
 
         new_state = %{state |
           current_guessing_player: next_guesser,
-          guessing_completed: [next_guesser | state.guessing_completed],
+          guessing_completed: guessing_completed,
           timer_state: :stopped,
           timer_start: nil
         }
@@ -463,6 +499,59 @@ defmodule WillyWeb.GameState do
     end
   end
 
+  @impl true
+  def handle_cast(:start_new_game, state) do
+    # Reset the game state but keep the players
+    new_state = %{state |
+      main_word: "",
+      guess_words: [],
+      game_status: :waiting,
+      current_round: 0,
+      current_phase: :choose,
+      current_guessing_player: nil,
+      found_words: %{},
+      timer_state: :stopped,
+      timer_start: nil,
+      revealed_words: MapSet.new(),
+      word_guesses: %{},
+      word_creators: %{},
+      rankings: []
+    }
+    broadcast_state(new_state)
+    {:noreply, new_state}
+  end
+
+  @impl true
+  def handle_cast(:end_session, _state) do
+    # Reset everything and disconnect all players
+    new_state = %{
+      main_word: "",
+      guess_words: [],
+      host_id: nil,
+      players: %{},
+      game_status: :waiting,
+      current_round: 0,
+      round_order: [],
+      rounds_completed: [],
+      current_phase: :choose,
+      guessing_order: [],
+      current_guessing_player: nil,
+      guessing_completed: [],
+      found_words: %{},
+      timer_state: :stopped,
+      timer_start: nil,
+      timer_duration: @timer_duration,
+      revealed_words: MapSet.new(),
+      word_guesses: %{},
+      word_creators: %{},
+      rankings: []
+    }
+    broadcast_state(new_state)
+    # Broadcast a special message to disconnect all players
+    Phoenix.PubSub.broadcast(Willy.PubSub, @topic, :host_disconnected)
+    {:noreply, new_state}
+  end
+
   # Helper function to broadcast state updates
   defp broadcast_state(state) do
     Phoenix.PubSub.broadcast(Willy.PubSub, @topic, {:state_updated, state})
@@ -471,5 +560,54 @@ defmodule WillyWeb.GameState do
   # Helper to check if enough players to start
   def can_start?(state) do
     map_size(state.players) >= @min_players
+  end
+
+  # Helper function to calculate points for a round
+  defp calculate_round_points(state) do
+    # Calculate points for each guessing player
+    guessing_points = Enum.reduce(state.word_guesses, %{}, fn {_word_index, finder_ids}, acc ->
+      Enum.reduce(finder_ids, acc, fn finder_id, acc ->
+        if finder_id != state.host_id do
+          Map.update(acc, finder_id, 1, &(&1 + 1))
+        else
+          acc
+        end
+      end)
+    end)
+
+    # Find the maximum points scored by any guessing player
+    max_guessing_points = case Map.values(guessing_points) do
+      [] -> 0
+      points -> Enum.max(points)
+    end
+
+    # Find the active player
+    {active_player_id, _} = Enum.find(state.players, fn {_id, info} -> info.state == :active_player end)
+
+    # Update points for all players
+    Enum.reduce(state.players, state.players, fn {player_id, player_info}, acc_players ->
+      cond do
+        # Skip host
+        player_id == state.host_id ->
+          acc_players
+
+        # Active player gets points equal to best guessing player
+        player_id == active_player_id ->
+          Map.put(acc_players, player_id, %{player_info | points: player_info.points + max_guessing_points})
+
+        # Guessing players get their found words points
+        true ->
+          points = Map.get(guessing_points, player_id, 0)
+          Map.put(acc_players, player_id, %{player_info | points: player_info.points + points})
+      end
+    end)
+  end
+
+  # Helper function to calculate final rankings
+  defp calculate_final_rankings(players) do
+    players
+    |> Map.to_list()
+    |> Enum.map(fn {id, info} -> {id, info.points} end)
+    |> Enum.sort_by(fn {_id, points} -> points end, :desc)
   end
 end

@@ -4,7 +4,7 @@
   <%= if @role == :spectator do %>
     <div class="mb-8 p-6 bg-yellow-50 border border-yellow-200 rounded">
       <h2 class="font-semibold mb-2">Join the game</h2>
-      <.form :let={f} for={%{}} phx-submit="join_game">
+      <.form :let={_f} for={%{}} phx-submit="join_game">
         <input name="nickname" type="text" placeholder="Your nickname" required class="mb-4 block w-full rounded border px-2 py-2 text-lg" />
         <div class="flex gap-4">
           <button name="as" value="player" class="bg-blue-500 text-white px-6 py-2 rounded text-lg">Join as Player</button>
@@ -29,6 +29,9 @@
               <%= if id == @host_id, do: " (Host)" %>
               <%= if id == @player_id, do: " (You)" %>
               <%= if info.state == :active_player, do: " (Active)" %>
+              <%= if id != @host_id do %>
+                <span class="ml-2 font-bold text-blue-600"><%= info.points %> pts</span>
+              <% end %>
             </div>
           <% end %>
         </div>
@@ -130,12 +133,13 @@
           Guess Words (<%= length(@guess_words) %>/10)
         </label>
         <%= if (@role == :host or (@game_status == :in_progress and @player_state == :active_player)) and @current_phase == :choose do %>
-          <.form :let={f} for={%{}} phx-submit="add_guess_word" phx-trigger-action={false}>
+          <.form :let={_f} for={%{}} phx-submit="add_guess_word" phx-trigger-action={false}>
             <input
               type="text"
               id="new-guess-word"
               name="value"
               phx-keydown="add_guess_word"
+              phx-value-submit=""
               class="block w-full rounded-md border-gray-300 shadow-sm focus:border-indigo-500 focus:ring-indigo-500 text-lg py-3 px-4"
               placeholder="Type and press Enter to add"
               disabled={length(@guess_words) >= 10}
@@ -162,13 +166,13 @@
             <span class="text-2xl font-semibold">
               <%= cond do %>
                 <% @current_phase == :revealing and index in @revealed_words -> %>
-                  <%= word || "" %>
+                  <%= word %>
                 <% @role == :host -> %>
-                  <%= word || "" %>
+                  <%= word %>
                 <% @player_state == :active_player -> %>
-                  <%= word || "" %>
+                  <%= word %>
                 <% true -> %>
-                  ""
+                  <%= "" %>
               <% end %>
             </span>
             <%= if @current_phase == :revealing and index in @revealed_words and Map.get(@word_guesses, index, []) != [] do %>
@@ -183,7 +187,7 @@
                 </div>
               </div>
             <% end %>
-            <%= if not is_nil(word) and (@role == :host or (@game_status == :in_progress and @player_state == :active_player and @current_phase == :choose)) do %>
+            <%= if not is_nil(word) and (@role == :host or (@game_status == :in_progress and @player_state == :active_player)) and @current_phase == :choose do %>
               <button
                 type="button"
                 phx-click="remove_guess_word"
@@ -242,5 +246,45 @@
         <% end %>
       <% end %>
     </div>
+
+    <%= if @game_status == :finished do %>
+      <div class="fixed inset-0 bg-black bg-opacity-50 flex items-center justify-center">
+        <div class="bg-white p-8 rounded-lg shadow-xl max-w-2xl w-full">
+          <h2 class="text-3xl font-bold mb-6 text-center">Game Over!</h2>
+          <div class="space-y-4">
+            <%= for {player_id, points} <- Enum.reject(@rankings, fn {id, _} -> id == @host_id end) do %>
+              <div class="flex items-center justify-between p-4 bg-gray-50 rounded-lg">
+                <div class="flex items-center">
+                  <span class="text-2xl font-bold text-gray-400 mr-4">#<%= Enum.find_index(Enum.reject(@rankings, fn {id, _} -> id == @host_id end), fn {id, _} -> id == player_id end) + 1 %></span>
+                  <span class="text-xl"><%= @players[player_id].name %></span>
+                  <%= if player_id == @player_id, do: " (You)" %>
+                </div>
+                <span class="text-2xl font-bold text-blue-600"><%= points %> pts</span>
+              </div>
+            <% end %>
+          </div>
+          <div class="mt-8 text-center space-x-4">
+            <%= if @role == :host do %>
+              <button
+                phx-click="start_new_game"
+                class="bg-green-600 text-white px-8 py-3 rounded text-xl font-bold">
+                Start New Game
+              </button>
+              <button
+                phx-click="end_session"
+                class="bg-red-600 text-white px-8 py-3 rounded text-xl font-bold">
+                End Session
+              </button>
+            <% else %>
+              <button
+                phx-click="leave_game"
+                class="bg-blue-600 text-white px-8 py-3 rounded text-xl font-bold">
+                Leave Game
+              </button>
+            <% end %>
+          </div>
+        </div>
+      </div>
+    <% end %>
   <% end %>
 </div> 

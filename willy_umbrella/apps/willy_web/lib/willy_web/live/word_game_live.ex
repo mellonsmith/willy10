@@ -26,6 +26,7 @@ defmodule WillyWeb.WordGameLive do
       time_remaining: 60,
       revealed_words: MapSet.new(),
       word_guesses: %{},
+      rankings: [],
       page_title: "10 gegen Willy"
     )
 
@@ -148,6 +149,20 @@ defmodule WillyWeb.WordGameLive do
     {:noreply, socket}
   end
 
+  def handle_event("start_new_game", _params, socket) do
+    if socket.assigns.role == :host do
+      WillyWeb.GameState.start_new_game()
+    end
+    {:noreply, socket}
+  end
+
+  def handle_event("end_session", _params, socket) do
+    if socket.assigns.role == :host do
+      WillyWeb.GameState.end_session()
+    end
+    {:noreply, socket}
+  end
+
   def handle_info(:tick, socket) do
     if socket.assigns.timer_state == :running and socket.assigns.timer_start do
       elapsed = System.system_time(:second) - socket.assigns.timer_start
@@ -190,7 +205,8 @@ defmodule WillyWeb.WordGameLive do
          do: max(0, new_state.timer_duration - (System.system_time(:second) - new_state.timer_start)),
          else: new_state.timer_duration),
        revealed_words: new_state.revealed_words,
-       word_guesses: new_state.word_guesses
+       word_guesses: new_state.word_guesses,
+       rankings: new_state.rankings || []
      )}
   end
 
@@ -209,7 +225,7 @@ defmodule WillyWeb.WordGameLive do
       current_round: 0,
       current_phase: :choose,
       current_guessing_player: nil
-    )}
+     )}
   end
 
   def terminate(_reason, socket) do
