@@ -63,7 +63,7 @@ config :willy_web, WillyWeb.Endpoint,
   ]
 
 # Enable dev routes for dashboard and mailbox
-config :willy_web, dev_routes: true
+config :willy_web, dev_routes: false
 
 # Do not include metadata nor timestamps in development logs
 config :logger, :console, format: "[$level] $message\n"
@@ -78,7 +78,7 @@ config :phoenix_live_view,
   enable_expensive_runtime_checks: true
 
 # Disable swoosh api client as it is only required for production adapters.
-config :swoosh, :api_client, false
+# config :swoosh, :api_client, false
 
 # Set a higher stacktrace during development. Avoid configuring such
 # in production as building large stacktraces may be expensive.

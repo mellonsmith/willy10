@@ -20,7 +20,7 @@ config :willy,
 #
 # For production it's recommended to configure a different adapter
 # at the `config/runtime.exs`.
-config :willy, Willy.Mailer, adapter: Swoosh.Adapters.Local
+# config :willy, Willy.Mailer, adapter: Swoosh.Adapters.Local
 
 config :willy_web,
   ecto_repos: [Willy.Repo],

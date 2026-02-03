@@ -2,9 +2,12 @@ defmodule WillyWeb.WordGameLive do
   use WillyWeb, :live_view
 
   @topic "word_game"
-  @host_id "host"
 
   def mount(_params, _session, socket) do
+    # Get game state first to use correct timer duration
+    state = WillyWeb.GameState.get_state()
+    timer_duration = state.timer_duration
+
     # Everyone starts as a spectator
     socket = assign(socket,
       player_id: nil,
@@ -22,20 +25,55 @@ defmodule WillyWeb.WordGameLive do
       found_words: %{},
       timer_state: :stopped,
       timer_start: nil,
-      timer_duration: 60,
-      time_remaining: 60,
+      timer_duration: timer_duration,
+      time_remaining: timer_duration,
+      timer_setting: timer_duration,
       revealed_words: MapSet.new(),
       word_guesses: %{},
       rankings: [],
-      page_title: "10 gegen Willy"
+      page_title: "Willy 10",
+      show_rejoin: false
     )
 
-    if connected?(socket) do
+    socket = if connected?(socket) do
       Phoenix.PubSub.subscribe(Willy.PubSub, @topic)
       :timer.send_interval(1000, self(), :tick)
+
+      # Check if there are any players to rejoin
+      show_rejoin = map_size(state.players) > 0
+      assign(socket, show_rejoin: show_rejoin)
+    else
+      socket
     end
 
     {:ok, socket}
+  end
+
+  # Restore session from localStorage
+  def handle_event("restore_session", %{"player_id" => player_id, "role" => role_str, "nickname" => nickname}, socket) do
+    state = WillyWeb.GameState.get_state()
+
+    # Check if this player still exists in the game
+    if Map.has_key?(state.players, player_id) do
+      player_info = state.players[player_id]
+      role = String.to_atom(role_str)
+
+      # Mark player as reconnected
+      WillyWeb.GameState.reconnect_player(player_id)
+
+      socket = assign(socket,
+        player_id: player_id,
+        role: role,
+        nickname: nickname,
+        player_state: player_info.state,
+        show_rejoin: false
+      )
+
+      {:noreply, socket}
+    else
+      # Player no longer exists, clear their session
+      {:noreply, push_event(socket, "clear_session", %{})}
+    end
   end
 
   # Join as player or host
@@ -45,9 +83,13 @@ defmodule WillyWeb.WordGameLive do
 
     case WillyWeb.GameState.join_game(player_id, nickname, role) do
       {:ok, :host} ->
-        {:noreply, assign(socket, player_id: player_id, role: :host, nickname: nickname, player_state: :waiting)}
+        socket = assign(socket, player_id: player_id, role: :host, nickname: nickname, player_state: :waiting, show_rejoin: false)
+        socket = push_event(socket, "save_session", %{player_id: player_id, role: "host", nickname: nickname})
+        {:noreply, socket}
       {:ok, :player} ->
-        {:noreply, assign(socket, player_id: player_id, role: :player, nickname: nickname, player_state: :waiting)}
+        socket = assign(socket, player_id: player_id, role: :player, nickname: nickname, player_state: :waiting, show_rejoin: false)
+        socket = push_event(socket, "save_session", %{player_id: player_id, role: "player", nickname: nickname})
+        {:noreply, socket}
       {:error, :host_exists} ->
         {:noreply, put_flash(socket, :error, "A host already exists. Please join as a player.")}
       {:error, :game_full} ->
@@ -55,12 +97,57 @@ defmodule WillyWeb.WordGameLive do
     end
   end
 
-  # Leave game, become spectator
+  # Rejoin an active game
+  def handle_event("rejoin_game", %{"player_id" => player_id}, socket) do
+    state = WillyWeb.GameState.get_state()
+
+    if Map.has_key?(state.players, player_id) do
+      player_info = state.players[player_id]
+      role = if player_id == state.host_id, do: :host, else: :player
+
+      # Mark player as reconnected
+      WillyWeb.GameState.reconnect_player(player_id)
+
+      socket = assign(socket,
+        player_id: player_id,
+        role: role,
+        nickname: player_info.name,
+        player_state: player_info.state,
+        show_rejoin: false
+      )
+
+      socket = push_event(socket, "save_session", %{player_id: player_id, role: Atom.to_string(role), nickname: player_info.name})
+
+      {:noreply, socket}
+    else
+      {:noreply, put_flash(socket, :error, "Could not rejoin game. Player not found.")}
+    end
+  end
+
+  # Leave game, become spectator (disconnect)
   def handle_event("leave_game", _params, socket) do
     if socket.assigns.player_id do
-      WillyWeb.GameState.leave_game(socket.assigns.player_id)
+      WillyWeb.GameState.disconnect_player(socket.assigns.player_id)
     end
-    {:noreply, assign(socket, player_id: nil, role: :spectator, nickname: nil, player_state: nil)}
+    socket = assign(socket, player_id: nil, role: :spectator, nickname: nil, player_state: nil, show_rejoin: true)
+    socket = push_event(socket, "clear_session", %{})
+    {:noreply, socket}
+  end
+
+  # Remove a player completely (host only)
+  def handle_event("remove_player", %{"player_id" => player_id}, socket) do
+    socket = if socket.assigns.role == :host do
+      WillyWeb.GameState.remove_player(player_id)
+      # If removing self, clear session
+      if player_id == socket.assigns.player_id do
+        push_event(socket, "clear_session", %{})
+      else
+        socket
+      end
+    else
+      socket
+    end
+    {:noreply, socket}
   end
 
   def handle_event("update_main_word", %{"value" => word}, socket) do
@@ -108,10 +195,20 @@ defmodule WillyWeb.WordGameLive do
   end
 
   def handle_event("toggle_found_word", %{"index" => index}, socket) do
-    if socket.assigns.role == :host and socket.assigns.current_phase == :guessing do
+    if (socket.assigns.role == :host or socket.assigns.player_state == :active_player) and socket.assigns.current_phase == :guessing do
       WillyWeb.GameState.toggle_found_word(socket.assigns.current_guessing_player, String.to_integer(index))
     end
     {:noreply, socket}
+  end
+
+  def handle_event("update_timer_setting", %{"value" => duration}, socket) do
+    if socket.assigns.role == :host do
+      duration_int = String.to_integer(duration)
+      WillyWeb.GameState.update_timer_duration(duration_int)
+      {:noreply, assign(socket, timer_setting: duration_int, timer_duration: duration_int, time_remaining: duration_int)}
+    else
+      {:noreply, socket}
+    end
   end
 
   def handle_event("start_timer", _params, socket) do
@@ -163,6 +260,20 @@ defmodule WillyWeb.WordGameLive do
     {:noreply, socket}
   end
 
+  def handle_event("previous_phase", _params, socket) do
+    if socket.assigns.role == :host do
+      WillyWeb.GameState.previous_phase()
+    end
+    {:noreply, socket}
+  end
+
+  def handle_event("previous_guessing_player", _params, socket) do
+    if socket.assigns.role == :host do
+      WillyWeb.GameState.previous_guessing_player()
+    end
+    {:noreply, socket}
+  end
+
   def handle_info(:tick, socket) do
     if socket.assigns.timer_state == :running and socket.assigns.timer_start do
       elapsed = System.system_time(:second) - socket.assigns.timer_start
@@ -201,17 +312,20 @@ defmodule WillyWeb.WordGameLive do
        timer_state: new_state.timer_state,
        timer_start: new_state.timer_start,
        timer_duration: new_state.timer_duration,
+       timer_setting: new_state.timer_duration,
        time_remaining: if(new_state.timer_state == :running and new_state.timer_start,
          do: max(0, new_state.timer_duration - (System.system_time(:second) - new_state.timer_start)),
          else: new_state.timer_duration),
        revealed_words: new_state.revealed_words,
        word_guesses: new_state.word_guesses,
-       rankings: new_state.rankings || []
+       rankings: new_state.rankings || [],
+       show_rejoin: socket.assigns.role == :spectator and map_size(new_state.players) > 0
      )}
   end
 
   # Handle host disconnection
   def handle_info(:host_disconnected, socket) do
+    socket = push_event(socket, "clear_session", %{})
     {:noreply, assign(socket,
       player_id: nil,
       role: :spectator,
@@ -224,17 +338,15 @@ defmodule WillyWeb.WordGameLive do
       host_id: nil,
       current_round: 0,
       current_phase: :choose,
-      current_guessing_player: nil
+      current_guessing_player: nil,
+      show_rejoin: false
      )}
   end
 
   def terminate(_reason, socket) do
     if connected?(socket) and socket.assigns.player_id do
-      WillyWeb.GameState.leave_game(socket.assigns.player_id)
+      WillyWeb.GameState.disconnect_player(socket.assigns.player_id)
     end
   end
 
-  defp host_exists?(players) do
-    Enum.any?(players, fn {id, _info} -> id == @host_id end)
-  end
 end

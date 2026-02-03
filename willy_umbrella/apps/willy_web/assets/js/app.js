@@ -25,9 +25,60 @@ import topbar from "../vendor/topbar";
 let csrfToken = document
   .querySelector("meta[name='csrf-token']")
   .getAttribute("content");
+
+// Hooks for persisting player data in localStorage
+let Hooks = {};
+
+Hooks.PlayerSession = {
+  mounted() {
+    // Load player data from localStorage when mounting
+    const savedPlayerId = localStorage.getItem("willy_player_id");
+    const savedRole = localStorage.getItem("willy_role");
+    const savedNickname = localStorage.getItem("willy_nickname");
+
+    if (savedPlayerId && savedRole && savedNickname) {
+      // Push saved data to the LiveView
+      this.pushEvent("restore_session", {
+        player_id: savedPlayerId,
+        role: savedRole,
+        nickname: savedNickname,
+      });
+    }
+
+    // Listen for save_session events from LiveView
+    this.handleEvent("save_session", (data) => {
+      localStorage.setItem("willy_player_id", data.player_id);
+      localStorage.setItem("willy_role", data.role);
+      localStorage.setItem("willy_nickname", data.nickname);
+    });
+
+    // Listen for clear_session events from LiveView
+    this.handleEvent("clear_session", () => {
+      localStorage.removeItem("willy_player_id");
+      localStorage.removeItem("willy_role");
+      localStorage.removeItem("willy_nickname");
+    });
+  },
+};
+
+Hooks.ConfirmClose = {
+  mounted() {
+    this.el.addEventListener("submit", (e) => {
+      if (
+        !confirm(
+          "Are you sure you want to close the game? All players will be disconnected and the game will end.",
+        )
+      ) {
+        e.preventDefault();
+      }
+    });
+  },
+};
+
 let liveSocket = new LiveSocket("/live", Socket, {
   longPollFallbackMs: 2500,
   params: { _csrf_token: csrfToken },
+  hooks: Hooks,
 });
 
 // Show progress bar on live navigation and form submits

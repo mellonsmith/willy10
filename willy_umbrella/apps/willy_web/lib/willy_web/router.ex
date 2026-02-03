@@ -17,8 +17,7 @@ defmodule WillyWeb.Router do
   scope "/", WillyWeb do
     pipe_through :browser
 
-    get "/", PageController, :home
-    live "/game", WordGameLive, :index
+    live "/", WordGameLive, :index
   end
 
   # Other scopes may use custom stacks.
@@ -39,7 +38,7 @@ defmodule WillyWeb.Router do
       pipe_through :browser
 
       live_dashboard "/dashboard", metrics: WillyWeb.Telemetry
-      forward "/mailbox", Plug.Swoosh.MailboxPreview
+      # forward "/mailbox", Plug.Swoosh.MailboxPreview
     end
   end
 end

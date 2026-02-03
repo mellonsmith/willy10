@@ -1,285 +1,508 @@
-<div class="w-[80vw] mx-auto p-8">
-  <h1 class="text-3xl font-bold mb-8">10 gegen Willy</h1>
-
+<div class="min-h-screen text-white flex" id="player-session" phx-hook="PlayerSession">
   <%= if @role == :spectator do %>
-    <div class="mb-8 p-6 bg-yellow-50 border border-yellow-200 rounded">
-      <h2 class="font-semibold mb-2">Join the game</h2>
-      <.form :let={_f} for={%{}} phx-submit="join_game">
-        <input name="nickname" type="text" placeholder="Your nickname" required class="mb-4 block w-full rounded border px-2 py-2 text-lg" />
-        <div class="flex gap-4">
-          <button name="as" value="player" class="bg-blue-500 text-white px-6 py-2 rounded text-lg">Join as Player</button>
-          <%= if !host_exists?(@players) do %>
-            <button name="as" value="host" class="bg-green-600 text-white px-6 py-2 rounded text-lg">Join as Host</button>
-          <% end %>
-        </div>
-      </.form>
-    </div>
-  <% else %>
-    <div class="mb-8 flex justify-between items-center">
-      <div>
-        <h2 class="text-xl font-semibold mb-2">Players</h2>
-        <div class="flex flex-wrap gap-4">
-          <%= for {id, info} <- @players do %>
-            <div class={[
-              "px-4 py-2 rounded-full text-lg bg-blue-100",
-              id == @host_id && "border-2 border-black",
-              info.state == :active_player && "border-2 border-green-500"
-            ]}>
-              <%= info.name %>
-              <%= if id == @host_id, do: " (Host)" %>
-              <%= if id == @player_id, do: " (You)" %>
-              <%= if info.state == :active_player, do: " (Active)" %>
-              <%= if id != @host_id do %>
-                <span class="ml-2 font-bold text-blue-600"><%= info.points %> pts</span>
+    <!-- Spectator View - Full Screen Join Game -->
+    <div class="flex-1 flex items-center justify-center p-8">
+      <div class="max-w-4xl w-full">
+        <%= if @show_rejoin and map_size(@players) > 0 do %>
+          <div class="mb-8 p-8 bg-gradient-to-r from-blue-600 to-blue-800 rounded-3xl shadow-2xl border-4 border-blue-400">
+            <h2 class="font-black mb-6 text-3xl text-center text-yellow-300">🔄 Rejoin Game</h2>
+            <p class="mb-6 text-xl text-center">Select your player to continue:</p>
+            <div class="space-y-3">
+              <%= for {id, info} <- @players do %>
+                <%= if not info.connected do %>
+                  <button
+                    phx-click="rejoin_game"
+                    phx-value-player_id={id}
+                    class="w-full text-left bg-white hover:bg-yellow-300 text-gray-900 px-6 py-4 rounded-2xl text-xl font-bold transition-all transform hover:scale-105 shadow-lg">
+                    <%= info.name %>
+                    <%= if id == @host_id, do: " 👑 (Host)" %>
+                    - <%= info.points %> pts
+                    <span class="text-red-600 ml-2">(Disconnected)</span>
+                  </button>
+                <% end %>
               <% end %>
             </div>
-          <% end %>
+          </div>
+        <% end %>
+
+        <div class="p-8 bg-gradient-to-r from-purple-600 to-purple-800 rounded-3xl shadow-2xl border-4 border-purple-400">
+          <div class="bg-gradient-to-r from-yellow-400 via-red-500 to-pink-500 py-6 rounded-2xl mb-6">
+            <h1 class="text-5xl font-black text-center text-white drop-shadow-lg tracking-wider">
+              🎮 Willy 10 🎮
+            </h1>
+          </div>
+          <h2 class="font-black mb-6 text-3xl text-center text-yellow-300">
+            <%= if @show_rejoin, do: "Or Join as New Player", else: "Join the Game!" %>
+          </h2>
+          <.form :let={_f} for={%{}} phx-submit="join_game">
+            <input
+              name="nickname"
+              type="text"
+              placeholder="Enter your nickname"
+              required
+              class="mb-6 block w-full rounded-2xl border-4 border-yellow-400 px-6 py-4 text-2xl font-bold text-gray-900 shadow-lg focus:outline-none focus:ring-4 focus:ring-yellow-300"
+            />
+            <div class="flex gap-4">
+              <button
+                name="as"
+                value="player"
+                class="flex-1 bg-gradient-to-r from-green-500 to-green-700 hover:from-green-600 hover:to-green-800 text-white px-8 py-4 rounded-2xl text-2xl font-black shadow-xl transform hover:scale-105 transition-all">
+                🎮 Join as Player
+              </button>
+              <%= if is_nil(@host_id) do %>
+                <button
+                  name="as"
+                  value="host"
+                  class="flex-1 bg-gradient-to-r from-yellow-500 to-orange-600 hover:from-yellow-600 hover:to-orange-700 text-white px-8 py-4 rounded-2xl text-2xl font-black shadow-xl transform hover:scale-105 transition-all">
+                  👑 Join as Host
+                </button>
+              <% end %>
+            </div>
+          </.form>
         </div>
       </div>
-      <form phx-submit="leave_game">
-        <button class="text-red-600 underline ml-6 text-lg" type="submit">Leave game</button>
-      </form>
     </div>
+  <% else %>
+    <!-- Main Game View with Sidebar -->
 
-    <div class="space-y-10">
-      <%= if @game_status == :in_progress do %>
-        <div class="text-center">
-          <h2 class="text-2xl font-bold">Round <%= @current_round %></h2>
-          <p class="text-lg text-gray-600">
-            <%= case @current_phase do %>
-              <% :choose -> %>
-                Choose Phase
-              <% :guessing -> %>
-                Guessing Phase
-                <%= if @current_guessing_player do %>
-                  <span class="font-semibold">
-                    - <%= @players[@current_guessing_player].name %> is guessing
-                  </span>
-                <% end %>
-                <%= if (@role == :host or @player_id == @current_guessing_player or @player_state == :active_player) and @current_phase == :guessing do %>
-                  <div class="mt-2">
-                    <span class={[
-                      "text-2xl font-mono",
-                      @timer_state == :running && "text-red-600"
-                    ]}>
-                      <%= @time_remaining %>
-                    </span>
-                    <%= if @role == :host do %>
-                      <div class="mt-2 space-x-2">
-                        <%= if @timer_state == :stopped do %>
-                          <button
-                            phx-click="start_timer"
-                            class="bg-green-600 text-white px-4 py-2 rounded text-lg font-bold">
-                            Start Timer
-                          </button>
-                        <% else %>
-                          <button
-                            phx-click="skip_timer"
-                            class="bg-yellow-600 text-white px-4 py-2 rounded text-lg font-bold">
-                            Skip Timer
-                          </button>
-                        <% end %>
-                        <button
-                          phx-click="reset_timer"
-                          class="bg-gray-600 text-white px-4 py-2 rounded text-lg font-bold">
-                          Reset Timer
-                        </button>
-                      </div>
-                    <% end %>
-                  </div>
-                <% end %>
-              <% :revealing -> %>
-                Revealing Phase
-            <% end %>
-          </p>
+    <!-- Sidebar -->
+    <div class="w-80 bg-gradient-to-b from-purple-900 via-blue-900 to-indigo-900 border-r-4 border-yellow-400 flex flex-col overflow-y-auto">
+      <!-- Header -->
+      <div class="bg-gradient-to-r from-yellow-400 via-red-500 to-pink-500 py-4 px-4 shadow-2xl">
+        <h1 class="text-3xl font-black text-center text-white drop-shadow-lg">
+          🎮 Willy 10 🎮
+        </h1>
+      </div>
+
+      <!-- Host Control Panel -->
+      <%= if @role == :host do %>
+        <div class="p-4 bg-gradient-to-r from-yellow-600 to-orange-600 border-b-4 border-yellow-400">
+          <div class="flex items-center gap-3 mb-3">
+            <span class="text-3xl">👑</span>
+            <div>
+              <h3 class="text-xl font-black text-white">Host</h3>
+              <p class="text-sm text-yellow-100"><%= @nickname %></p>
+            </div>
+          </div>
+
+          <%= if @game_status == :waiting do %>
+            <div class="mb-3">
+              <label class="text-white font-bold text-sm block mb-1">Timer:</label>
+              <form phx-change="update_timer_setting">
+                <select
+                  name="value"
+                  class="w-full px-3 py-2 rounded-xl font-bold text-gray-900 bg-white border-2 border-yellow-400">
+                  <option value="30" selected={@timer_setting == 30}>30s</option>
+                  <option value="45" selected={@timer_setting == 45}>45s</option>
+                  <option value="60" selected={@timer_setting == 60}>60s</option>
+                  <option value="90" selected={@timer_setting == 90}>90s</option>
+                  <option value="120" selected={@timer_setting == 120}>2min</option>
+                </select>
+              </form>
+            </div>
+          <% end %>
+
+          <div class="flex gap-2">
+            <form phx-submit="end_session" phx-hook="ConfirmClose" id="close-game-form" class="flex-1">
+              <button class="w-full bg-red-600 hover:bg-red-700 text-white px-3 py-2 rounded-xl text-sm font-bold shadow-lg transition-all" type="submit">
+                🚫 Close
+              </button>
+            </form>
+            <form phx-submit="leave_game" class="flex-1">
+              <button class="w-full bg-gray-700 hover:bg-gray-800 text-white px-3 py-2 rounded-xl text-sm font-bold shadow-lg transition-all" type="submit">
+                🚪 Leave
+              </button>
+            </form>
+          </div>
         </div>
       <% end %>
 
-      <div>
-        <label class="block text-lg font-medium text-gray-700 mb-3">
-          Main Word <%= if @role == :host, do: "(You can edit this)" %>
-        </label>
-        <%= if @role == :host do %>
-          <input
-            type="text"
-            value={@main_word}
-            phx-keyup="update_main_word"
-            class="block w-full rounded-md border-gray-300 shadow-sm focus:border-indigo-500 focus:ring-indigo-500 text-xl py-3 px-4"
-            placeholder="Enter the main word"
-            disabled={@current_phase != :choose}
-          />
-        <% else %>
-          <div class="block w-full rounded-md border border-gray-300 bg-gray-50 px-4 py-3 text-xl">
-            <%= cond do %>
-              <% @main_word == "" -> %>
-                Waiting for host to enter a word...
-              <% @current_phase == :revealing -> %>
-                <%= @main_word %>
-              <% @current_phase == :guessing and @current_guessing_player == @player_id and @timer_state == :running -> %>
-                <%= @main_word %>
-              <% @player_state == :active_player -> %>
-                <%= @main_word %>
-              <% @role == :host -> %>
-                <%= @main_word %>
-              <% true -> %>
-                Waiting for your turn...
+      <!-- Timer Display -->
+      <%= if @game_status == :in_progress and @current_phase == :guessing do %>
+        <div class="p-4 bg-gradient-to-r from-red-600 to-red-800 border-b-4 border-red-400">
+          <div class="text-center">
+            <div class={[
+              "text-6xl font-black tabular-nums",
+              @timer_state == :running && @time_remaining <= 10 && "animate-pulse text-yellow-300",
+              @timer_state == :running && @time_remaining > 10 && "text-white",
+              @timer_state == :stopped && "text-gray-300"
+            ]}>
+              <%= @time_remaining %>
+            </div>
+            <div class="text-sm font-bold text-white">seconds</div>
+          </div>
+
+          <%= if @role == :host do %>
+            <div class="mt-3 flex gap-2">
+              <%= if @timer_state == :stopped do %>
+                <button
+                  phx-click="start_timer"
+                  class="flex-1 bg-green-600 hover:bg-green-700 text-white px-3 py-2 rounded-xl text-sm font-black shadow-xl transition-all">
+                  ▶️ Start
+                </button>
+              <% else %>
+                <button
+                  phx-click="skip_timer"
+                  class="flex-1 bg-yellow-600 hover:bg-yellow-700 text-white px-3 py-2 rounded-xl text-sm font-black shadow-xl transition-all">
+                  ⏭️ Skip
+                </button>
+              <% end %>
+              <button
+                phx-click="reset_timer"
+                class="flex-1 bg-gray-600 hover:bg-gray-700 text-white px-3 py-2 rounded-xl text-sm font-black shadow-xl transition-all">
+                🔄 Reset
+              </button>
+            </div>
+          <% end %>
+        </div>
+      <% end %>
+
+      <!-- Players Section -->
+      <div class="flex-1 p-4 overflow-y-auto">
+        <div class="mb-3 flex justify-between items-center">
+          <h2 class="text-2xl font-black text-yellow-300">🎯 Players</h2>
+          <%= if @role != :host do %>
+            <form phx-submit="leave_game">
+              <button class="bg-red-600 hover:bg-red-700 text-white px-3 py-2 rounded-xl text-xs font-bold shadow-lg transition-all" type="submit">
+                🚪 Leave
+              </button>
+            </form>
+          <% end %>
+        </div>
+        <div class="space-y-2">
+          <%= for {id, info} <- @players do %>
+            <%= if id != @host_id do %>
+              <div class={[
+                "px-4 py-3 rounded-xl text-sm font-bold relative group transition-all shadow-lg",
+                info.connected && "bg-gradient-to-r from-blue-500 to-blue-700 border-2 border-blue-300",
+                not info.connected && "bg-gray-600 border-2 border-gray-400",
+                info.state == :active_player && "ring-2 ring-yellow-400 animate-pulse"
+              ]}>
+                <div class="flex justify-between items-center">
+                  <div>
+                    <%= info.name %>
+                    <%= if id == @player_id, do: " (You)" %>
+                    <%= if info.state == :active_player, do: " ⭐" %>
+                    <%= if not info.connected do %>
+                      <span class="ml-1 text-red-300 text-xs">(Offline)</span>
+                    <% end %>
+                  </div>
+                  <span class="font-black text-yellow-300"><%= info.points %> pts</span>
+                </div>
+                <%= if @role == :host do %>
+                  <button
+                    phx-click="remove_player"
+                    phx-value-player_id={id}
+                    phx-value-player_name={info.name}
+                    class="absolute top-1 right-1 text-red-300 hover:text-red-100 font-black opacity-0 group-hover:opacity-100 transition-opacity text-xs"
+                    title="Remove player">
+                    ✕
+                  </button>
+                <% end %>
+              </div>
+            <% end %>
+          <% end %>
+        </div>
+      </div>
+
+      <!-- Host Controls (Bottom) -->
+      <%= if @role == :host and @game_status == :in_progress do %>
+        <div class="p-4 bg-white/10 border-t-4 border-yellow-400">
+          <div class="space-y-2">
+            <%= if @current_phase == :guessing do %>
+              <div class="flex gap-2">
+                <button
+                  phx-click="previous_guessing_player"
+                  class="flex-1 bg-gray-600 hover:bg-gray-700 text-white px-3 py-2 rounded-xl text-xs font-black shadow-xl transition-all">
+                  ⬅️ Prev
+                </button>
+                <button
+                  phx-click="next_guessing_player"
+                  class="flex-1 bg-blue-600 hover:bg-blue-700 text-white px-3 py-2 rounded-xl text-xs font-black shadow-xl transition-all">
+                  Next ➡️
+                </button>
+              </div>
+            <% end %>
+            <%= if @current_phase == :revealing do %>
+              <button
+                phx-click="reveal_all_words"
+                class="w-full bg-purple-600 hover:bg-purple-700 text-white px-3 py-2 rounded-xl text-xs font-black shadow-xl transition-all">
+                🎉 Reveal All
+              </button>
+            <% end %>
+            <%= if @current_phase != :guessing do %>
+              <%= if @current_phase != :choose do %>
+                <button
+                  phx-click="previous_phase"
+                  class="w-full bg-gray-600 hover:bg-gray-700 text-white px-3 py-2 rounded-xl text-xs font-black shadow-xl transition-all">
+                  ⬅️ Previous Phase
+                </button>
+              <% end %>
+              <button
+                phx-click="next_phase"
+                class="w-full bg-green-600 hover:bg-green-700 text-white px-3 py-2 rounded-xl text-xs font-black shadow-xl transition-all">
+                <%= if @current_phase == :choose, do: "Next Phase ➡️", else: "Next Round ➡️" %>
+              </button>
+            <% end %>
+          </div>
+        </div>
+      <% end %>
+
+      <!-- Start Game Button (Waiting) -->
+      <%= if @role == :host and @game_status == :waiting do %>
+        <div class="p-4 bg-white/10 border-t-4 border-yellow-400">
+          <form phx-submit="start_game">
+            <button
+              class="w-full bg-gradient-to-r from-green-500 to-green-700 hover:from-green-600 hover:to-green-800 text-white px-4 py-3 rounded-2xl text-lg font-black shadow-2xl disabled:opacity-50 disabled:cursor-not-allowed transition-all"
+              disabled={map_size(@players) < 4}>
+              🚀 Start Game
+            </button>
+            <p class="mt-2 text-xs text-center font-bold text-yellow-300">
+              <%= if map_size(@players) < 4 do %>
+                Need <%= 4 - map_size(@players) %> more
+              <% else %>
+                Ready! (<%= map_size(@players) - 1 %> players)
+              <% end %>
+            </p>
+          </form>
+        </div>
+      <% end %>
+    </div>
+
+    <!-- Main Frame -->
+    <div class="flex-1 bg-gradient-to-br from-purple-900 via-blue-900 to-indigo-900 overflow-y-auto">
+      <div class="container mx-auto px-8 py-8">
+        <!-- Game Status -->
+        <%= if @game_status == :in_progress do %>
+          <div class="mb-8 text-center">
+            <div class="inline-block p-6 bg-gradient-to-r from-pink-600 to-purple-600 rounded-3xl shadow-2xl border-4 border-pink-400">
+              <h2 class="text-4xl font-black mb-2">Round <%= @current_round %></h2>
+              <p class="text-2xl font-bold text-yellow-300">
+                <%= case @current_phase do %>
+                  <% :choose -> %>
+                    📝 Choose Phase
+                  <% :guessing -> %>
+                    🎯 Guessing Phase
+                    <%= if @current_guessing_player do %>
+                      <span class="block mt-2 text-3xl">
+                        <%= @players[@current_guessing_player].name %> is guessing!
+                      </span>
+                    <% end %>
+                  <% :revealing -> %>
+                    🎉 Revealing Phase
+                <% end %>
+              </p>
+            </div>
+          </div>
+        <% end %>
+
+        <!-- Main Word Display -->
+        <%= if @game_status == :in_progress and @main_word != "" do %>
+          <div class="mb-12">
+            <%= if @role == :host or @player_state == :active_player or
+                (@current_phase == :revealing) or
+                (@current_phase == :guessing and @current_guessing_player == @player_id and @timer_state == :running) do %>
+              <div class="text-center">
+                <div class="inline-block p-8 bg-gradient-to-r from-yellow-400 via-orange-500 to-red-500 rounded-3xl shadow-2xl border-4 border-yellow-300 transform hover:scale-105 transition-all">
+                  <div class="text-6xl md:text-8xl font-black text-white drop-shadow-2xl tracking-wider">
+                    <%= @main_word %>
+                  </div>
+                </div>
+              </div>
+            <% else %>
+              <div class="text-center">
+                <div class="inline-block p-8 bg-gradient-to-r from-gray-600 to-gray-800 rounded-3xl shadow-2xl border-4 border-gray-500">
+                  <div class="text-5xl font-black text-gray-400">
+                    🔒 Waiting for your turn...
+                  </div>
+                </div>
+              </div>
             <% end %>
           </div>
         <% end %>
-      </div>
 
-      <div>
-        <label class="block text-lg font-medium text-gray-700 mb-3">
-          Guess Words (<%= length(@guess_words) %>/10)
-        </label>
-        <%= if (@role == :host or (@game_status == :in_progress and @player_state == :active_player)) and @current_phase == :choose do %>
-          <.form :let={_f} for={%{}} phx-submit="add_guess_word" phx-trigger-action={false}>
+        <!-- Main Word Input (for host during choose phase) -->
+        <%= if @role == :host and @current_phase == :choose do %>
+          <div class="mb-8 max-w-4xl mx-auto">
+            <label class="block text-2xl font-black text-yellow-300 mb-4 text-center">
+              📌 Enter Main Word
+            </label>
             <input
               type="text"
-              id="new-guess-word"
-              name="value"
-              phx-keydown="add_guess_word"
-              phx-value-submit=""
-              class="block w-full rounded-md border-gray-300 shadow-sm focus:border-indigo-500 focus:ring-indigo-500 text-lg py-3 px-4"
-              placeholder="Type and press Enter to add"
-              disabled={length(@guess_words) >= 10}
+              value={@main_word}
+              phx-keyup="update_main_word"
+              class="block w-full rounded-2xl border-4 border-yellow-400 shadow-xl text-4xl py-6 px-8 font-black text-gray-900 text-center focus:outline-none focus:ring-4 focus:ring-yellow-300"
+              placeholder="Enter the main word"
             />
-          </.form>
+          </div>
         <% end %>
-      </div>
 
-      <div class="grid grid-cols-5 grid-rows-2 gap-x-2 gap-y-10 justify-items-center">
-        <%= for {word, index} <- Enum.with_index(Enum.concat(@guess_words, List.duplicate(nil, 10 - length(@guess_words)))) do %>
-          <div class={[
-            "flex flex-col items-center justify-center h-56 w-full min-w-[160px] max-w-[260px] bg-gray-100 rounded-xl border border-gray-300 relative cursor-pointer",
-            @current_phase == :guessing and @role == :host and "hover:bg-gray-200",
-            @current_phase == :guessing and @role == :host and index in Map.get(@found_words, @current_guessing_player, []) and "bg-green-100 border-green-500",
-            @current_phase == :guessing and @player_state == :active_player and index in Map.get(@found_words, @current_guessing_player, []) and "bg-green-100 border-green-500",
-            @current_phase == :revealing and index in @revealed_words and "bg-blue-100 border-blue-500"
-          ]}
-          phx-click={cond do
-            @current_phase == :guessing and @role == :host -> "toggle_found_word"
-            @current_phase == :revealing and @role == :host -> "reveal_word"
-            true -> nil
-          end}
-          phx-value-index={index}>
-            <span class="text-2xl font-semibold">
-              <%= cond do %>
-                <% @current_phase == :revealing and index in @revealed_words -> %>
-                  <%= word %>
-                <% @role == :host -> %>
-                  <%= word %>
-                <% @player_state == :active_player -> %>
-                  <%= word %>
-                <% true -> %>
-                  <%= "" %>
-              <% end %>
-            </span>
-            <%= if @current_phase == :revealing and index in @revealed_words and Map.get(@word_guesses, index, []) != [] do %>
-              <div class="mt-2 text-sm text-gray-600">
-                Found by:
-                <div class="mt-1">
-                  <%= for player_id <- Map.get(@word_guesses, index, []) do %>
-                    <div class="text-blue-600">
-                      <%= @players[player_id].name %>
+        <!-- Guess Words Input -->
+        <%= if (@role == :host or (@game_status == :in_progress and @player_state == :active_player)) and @current_phase == :choose do %>
+          <div class="mb-8 max-w-4xl mx-auto">
+            <label class="block text-2xl font-black text-yellow-300 mb-4 text-center">
+              ✍️ Add Guess Words (<%= length(@guess_words) %>/10)
+            </label>
+            <.form :let={_f} for={%{}} phx-submit="add_guess_word" phx-trigger-action={false}>
+              <input
+                type="text"
+                id="new-guess-word"
+                name="value"
+                phx-keydown="add_guess_word"
+                phx-value-submit=""
+                class="block w-full rounded-2xl border-4 border-blue-400 shadow-xl text-2xl py-4 px-6 font-bold text-gray-900 focus:outline-none focus:ring-4 focus:ring-blue-300"
+                placeholder="Type a word and press Enter"
+                disabled={length(@guess_words) >= 10}
+              />
+            </.form>
+          </div>
+        <% end %>
+
+        <!-- Guess Words Grid with Flip Animation -->
+        <div class="mb-8">
+          <h3 class="text-3xl font-black text-yellow-300 mb-6 text-center">
+            🎴 Word Cards
+          </h3>
+          <div class="grid grid-cols-2 md:grid-cols-5 gap-4 max-w-6xl mx-auto">
+            <%= for {word, index} <- Enum.with_index(Enum.concat(@guess_words, List.duplicate(nil, 10 - length(@guess_words)))) do %>
+              <div
+                class="perspective-1000"
+                phx-click={cond do
+                  @current_phase == :guessing and (@role == :host or @player_state == :active_player) -> "toggle_found_word"
+                  @current_phase == :revealing and @role == :host -> "reveal_word"
+                  true -> nil
+                end}
+                phx-value-index={index}>
+                <div class={[
+                  "relative h-48 w-full transition-all duration-500 transform-style-3d",
+                  @current_phase == :revealing and index in @revealed_words and "rotate-y-180",
+                  @current_phase == :guessing and (@role == :host or @player_state == :active_player) and "cursor-pointer"
+                ]}>
+                  <!-- Front of card -->
+                  <div class={[
+                    "absolute inset-0 backface-hidden rounded-2xl shadow-2xl flex items-center justify-center p-4 border-4",
+                    @current_phase == :guessing and (@role == :host or @player_state == :active_player) and "hover:scale-105",
+                    # Show green only to host and active player when found
+                    @current_phase == :guessing and (@role == :host or @player_state == :active_player) and index in Map.get(@found_words, @current_guessing_player, []) && "bg-gradient-to-br from-green-400 to-green-600 border-green-300",
+                    # Show purple to host/active when not found
+                    @current_phase == :guessing and (@role == :host or @player_state == :active_player) and index not in Map.get(@found_words, @current_guessing_player, []) && "bg-gradient-to-br from-purple-500 to-purple-700 border-purple-300",
+                    # Show purple to other players (they don't see green)
+                    @current_phase == :guessing and @role != :host and @player_state != :active_player && "bg-gradient-to-br from-purple-500 to-purple-700 border-purple-300",
+                    @current_phase != :guessing && "bg-gradient-to-br from-blue-500 to-blue-700 border-blue-300",
+                    is_nil(word) && "bg-gradient-to-br from-gray-500 to-gray-700 border-gray-400"
+                  ]}>
+                    <%= if @role == :host or @player_state == :active_player do %>
+                      <span class="text-2xl md:text-3xl font-black text-white text-center break-words">
+                        <%= word %>
+                      </span>
+                    <% else %>
+                      <%= unless is_nil(word) do %>
+                        <span class="text-6xl">❓</span>
+                      <% end %>
+                    <% end %>
+                    <%= if not is_nil(word) and (@role == :host or (@game_status == :in_progress and @player_state == :active_player)) and @current_phase == :choose do %>
+                      <button
+                        type="button"
+                        phx-click="remove_guess_word"
+                        phx-value-index={index}
+                        class="absolute top-2 right-2 text-white hover:text-red-300 text-3xl font-black bg-red-600 hover:bg-red-700 rounded-full w-10 h-10 flex items-center justify-center shadow-lg"
+                        title="Remove">
+                        ✕
+                      </button>
+                    <% end %>
+                  </div>
+
+                  <!-- Back of card (revealed) - Only shows after flip -->
+                  <%= if @current_phase == :revealing and index in @revealed_words do %>
+                    <div class="absolute inset-0 backface-hidden rotate-y-180 rounded-2xl shadow-2xl bg-gradient-to-br from-yellow-400 to-orange-500 border-4 border-yellow-300 flex flex-col items-center justify-center p-4">
+                      <span class="text-2xl md:text-3xl font-black text-gray-900 text-center break-words mb-2">
+                        <%= word %>
+                      </span>
+                      <%= if Map.get(@word_guesses, index, []) != [] do %>
+                        <div class="text-sm text-gray-900 font-bold mt-2">
+                          Found by:
+                          <%= for player_id <- Map.get(@word_guesses, index, []) do %>
+                            <div class="text-blue-900">
+                              <%= @players[player_id].name %>
+                            </div>
+                          <% end %>
+                        </div>
+                      <% end %>
                     </div>
                   <% end %>
                 </div>
               </div>
             <% end %>
-            <%= if not is_nil(word) and (@role == :host or (@game_status == :in_progress and @player_state == :active_player)) and @current_phase == :choose do %>
-              <button
-                type="button"
-                phx-click="remove_guess_word"
-                phx-value-index={index}
-                class="absolute top-2 right-3 text-gray-400 hover:text-red-600 text-2xl font-bold"
-                title="Remove"
-              >
-                ×
-              </button>
-            <% end %>
           </div>
-        <% end %>
+        </div>
       </div>
-
-      <%= if @role == :host do %>
-        <%= if @game_status == :waiting do %>
-          <form phx-submit="start_game" class="mb-8">
-            <button
-              class="bg-green-600 text-white px-8 py-3 rounded text-xl font-bold disabled:opacity-50"
-              disabled={map_size(@players) < 4}>
-              Start Game
-            </button>
-          </form>
-        <% else %>
-          <%= if @game_status == :in_progress do %>
-            <div class="flex gap-4 justify-center">
-              <%= if @current_phase == :guessing do %>
-                <form phx-submit="next_guessing_player" class="mb-8">
-                  <button
-                    class="bg-blue-600 text-white px-8 py-3 rounded text-xl font-bold"
-                    type="submit">
-                    Next Player
-                  </button>
-                </form>
-              <% end %>
-              <%= if @current_phase == :revealing do %>
-                <form phx-submit="reveal_all_words" class="mb-8">
-                  <button
-                    class="bg-purple-600 text-white px-8 py-3 rounded text-xl font-bold"
-                    type="submit">
-                    Reveal All
-                  </button>
-                </form>
-              <% end %>
-              <%= if @current_phase != :guessing do %>
-                <form phx-submit="next_phase" class="mb-8">
-                  <button
-                    class="bg-green-600 text-white px-8 py-3 rounded text-xl font-bold"
-                    type="submit">
-                    <%= if @current_phase == :choose, do: "Next Phase", else: "Next Round" %>
-                  </button>
-                </form>
-              <% end %>
-            </div>
-          <% end %>
-        <% end %>
-      <% end %>
     </div>
 
+    <!-- Game Over Modal -->
     <%= if @game_status == :finished do %>
-      <div class="fixed inset-0 bg-black bg-opacity-50 flex items-center justify-center">
-        <div class="bg-white p-8 rounded-lg shadow-xl max-w-2xl w-full">
-          <h2 class="text-3xl font-bold mb-6 text-center">Game Over!</h2>
-          <div class="space-y-4">
-            <%= for {player_id, points} <- Enum.reject(@rankings, fn {id, _} -> id == @host_id end) do %>
-              <div class="flex items-center justify-between p-4 bg-gray-50 rounded-lg">
-                <div class="flex items-center">
-                  <span class="text-2xl font-bold text-gray-400 mr-4">#<%= Enum.find_index(Enum.reject(@rankings, fn {id, _} -> id == @host_id end), fn {id, _} -> id == player_id end) + 1 %></span>
-                  <span class="text-xl"><%= @players[player_id].name %></span>
-                  <%= if player_id == @player_id, do: " (You)" %>
+      <div class="fixed inset-0 bg-black/80 flex items-center justify-center z-50 p-4">
+        <div class="bg-gradient-to-br from-purple-600 to-pink-600 p-8 rounded-3xl shadow-2xl max-w-2xl w-full border-4 border-yellow-400">
+          <h2 class="text-5xl font-black mb-8 text-center text-yellow-300 drop-shadow-lg">
+            🏆 Game Over! 🏆
+          </h2>
+          <div class="space-y-4 mb-8">
+            <%= for {{player_id, points}, rank} <- Enum.with_index(Enum.reject(@rankings, fn {id, _} -> id == @host_id end), 1) do %>
+              <div class={[
+                "flex items-center justify-between p-6 rounded-2xl shadow-lg",
+                rank == 1 && "bg-gradient-to-r from-yellow-400 to-yellow-600 border-4 border-yellow-300 scale-105",
+                rank == 2 && "bg-gradient-to-r from-gray-300 to-gray-500",
+                rank == 3 && "bg-gradient-to-r from-orange-400 to-orange-600",
+                rank > 3 && "bg-white/20"
+              ]}>
+                <div class="flex items-center gap-4">
+                  <span class="text-4xl font-black">
+                    <%= case rank do %>
+                      <% 1 -> %> 🥇
+                      <% 2 -> %> 🥈
+                      <% 3 -> %> 🥉
+                      <% _ -> %> #<%= rank %>
+                    <% end %>
+                  </span>
+                  <div>
+                    <span class={[
+                      "text-2xl font-bold",
+                      rank <= 3 && "text-gray-900",
+                      rank > 3 && "text-white"
+                    ]}>
+                      <%= @players[player_id].name %>
+                    </span>
+                    <%= if player_id == @player_id do %>
+                      <span class="ml-2 text-xl">(You)</span>
+                    <% end %>
+                  </div>
                 </div>
-                <span class="text-2xl font-bold text-blue-600"><%= points %> pts</span>
+                <span class={[
+                  "text-3xl font-black",
+                  rank <= 3 && "text-gray-900",
+                  rank > 3 && "text-yellow-300"
+                ]}>
+                  <%= points %> pts
+                </span>
               </div>
             <% end %>
           </div>
-          <div class="mt-8 text-center space-x-4">
+          <div class="flex gap-4 justify-center">
             <%= if @role == :host do %>
               <button
                 phx-click="start_new_game"
-                class="bg-green-600 text-white px-8 py-3 rounded text-xl font-bold">
-                Start New Game
+                class="bg-green-600 hover:bg-green-700 text-white px-10 py-4 rounded-2xl text-2xl font-black shadow-xl transition-all transform hover:scale-105">
+                🎮 New Game
               </button>
               <button
                 phx-click="end_session"
-                class="bg-red-600 text-white px-8 py-3 rounded text-xl font-bold">
-                End Session
+                class="bg-red-600 hover:bg-red-700 text-white px-10 py-4 rounded-2xl text-2xl font-black shadow-xl transition-all transform hover:scale-105">
+                🚫 End Session
               </button>
             <% else %>
               <button
                 phx-click="leave_game"
-                class="bg-blue-600 text-white px-8 py-3 rounded text-xl font-bold">
-                Leave Game
+                class="bg-blue-600 hover:bg-blue-700 text-white px-10 py-4 rounded-2xl text-2xl font-black shadow-xl transition-all transform hover:scale-105">
+                🚪 Leave Game
               </button>
             <% end %>
           </div>
@@ -287,4 +510,23 @@
       </div>
     <% end %>
   <% end %>
-</div> 
+</div>
+
+<style>
+  .perspective-1000 {
+    perspective: 1000px;
+  }
+
+  .transform-style-3d {
+    transform-style: preserve-3d;
+  }
+
+  .backface-hidden {
+    backface-visibility: hidden;
+    -webkit-backface-visibility: hidden;
+  }
+
+  .rotate-y-180 {
+    transform: rotateY(180deg);
+  }
+</style>
