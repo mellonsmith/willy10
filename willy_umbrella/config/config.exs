@@ -9,10 +9,6 @@
 # move said applications out of the umbrella.
 import Config
 
-# Configure Mix tasks and generators
-config :willy,
-  ecto_repos: [Willy.Repo]
-
 # Configures the mailer
 #
 # By default it uses the "Local" adapter which stores the emails
@@ -23,7 +19,6 @@ config :willy,
 # config :willy, Willy.Mailer, adapter: Swoosh.Adapters.Local
 
 config :willy_web,
-  ecto_repos: [Willy.Repo],
   generators: [context_app: :willy]
 
 # Configures the endpoint

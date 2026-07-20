@@ -2,4 +2,223 @@
 @import "tailwindcss/components";
 @import "tailwindcss/utilities";
 
-/* This file is for your main application CSS */
+/* === Willy 10 game styles === */
+
+/* Display font used only for the "Willy 10" logo */
+.font-logo {
+  font-family: "Luckiest Guy", "Comic Sans MS", cursive;
+  font-weight: 400;
+}
+
+/* 3D card flip helpers */
+.perspective-1000 {
+  perspective: 1200px;
+}
+
+.transform-style-3d {
+  transform-style: preserve-3d;
+}
+
+.backface-hidden {
+  backface-visibility: hidden;
+  -webkit-backface-visibility: hidden;
+}
+
+.rotate-y-180 {
+  transform: rotateY(180deg);
+}
+
+.card-flip {
+  transition: transform 0.7s cubic-bezier(0.4, 0.2, 0.2, 1);
+}
+
+/* Phase transition: plays whenever the phase wrapper is swapped out */
+@keyframes phase-in {
+  from {
+    opacity: 0;
+    transform: translateY(24px) scale(0.97);
+  }
+  to {
+    opacity: 1;
+    transform: none;
+  }
+}
+
+.phase-enter {
+  animation: phase-in 0.5s cubic-bezier(0.22, 1, 0.36, 1) both;
+}
+
+/* Pop-in for banners (round status, main word, modals) */
+@keyframes banner-pop {
+  0% {
+    opacity: 0;
+    transform: translateY(-16px) scale(0.9);
+  }
+  60% {
+    transform: translateY(2px) scale(1.02);
+  }
+  100% {
+    opacity: 1;
+    transform: none;
+  }
+}
+
+.banner-pop {
+  animation: banner-pop 0.45s cubic-bezier(0.22, 1, 0.36, 1) both;
+}
+
+@keyframes fade-in {
+  from {
+    opacity: 0;
+  }
+  to {
+    opacity: 1;
+  }
+}
+
+.fade-in {
+  animation: fade-in 0.3s ease-out both;
+}
+
+/* Cards get dealt onto the table with a stagger (delay set inline per card) */
+@keyframes card-in {
+  from {
+    opacity: 0;
+    transform: translateY(30px) rotate(-2deg) scale(0.9);
+  }
+  to {
+    opacity: 1;
+    transform: none;
+  }
+}
+
+.card-deal {
+  animation: card-in 0.5s cubic-bezier(0.22, 1, 0.36, 1) both;
+}
+
+/* Decorative back of a hidden word card: diamond lattice + double gold frame */
+.card-back {
+  background-color: #1e1b4b;
+  background-image:
+    repeating-linear-gradient(45deg, rgba(167, 139, 250, 0.25) 0 2px, transparent 2px 13px),
+    repeating-linear-gradient(-45deg, rgba(167, 139, 250, 0.25) 0 2px, transparent 2px 13px),
+    radial-gradient(ellipse at 50% 40%, #4338ca 0%, #312e81 55%, #1e1b4b 100%);
+}
+
+.card-back::before {
+  content: "";
+  position: absolute;
+  inset: 0.45rem;
+  border: 2px solid rgba(253, 224, 71, 0.45);
+  border-radius: 0.9rem;
+  pointer-events: none;
+}
+
+.card-back::after {
+  content: "";
+  position: absolute;
+  inset: 0.85rem;
+  border: 1px solid rgba(253, 224, 71, 0.25);
+  border-radius: 0.6rem;
+  pointer-events: none;
+}
+
+/* Shine sweep across a freshly revealed card */
+@keyframes reveal-shine {
+  from {
+    transform: translateX(-150%) skewX(-20deg);
+  }
+  to {
+    transform: translateX(250%) skewX(-20deg);
+  }
+}
+
+.reveal-shine::before {
+  content: "";
+  position: absolute;
+  top: 0;
+  bottom: 0;
+  left: 0;
+  width: 40%;
+  background: linear-gradient(90deg, transparent, rgba(255, 255, 255, 0.55), transparent);
+  animation: reveal-shine 0.9s ease-out 0.4s both;
+}
+
+/* Full-screen pulsing frame shown to the player whose turn it is */
+@keyframes turn-glow {
+  0%,
+  100% {
+    box-shadow:
+      inset 0 0 0 5px rgba(74, 222, 128, 0.8),
+      inset 0 0 60px 12px rgba(74, 222, 128, 0.25);
+  }
+  50% {
+    box-shadow:
+      inset 0 0 0 8px rgba(74, 222, 128, 1),
+      inset 0 0 90px 24px rgba(74, 222, 128, 0.45);
+  }
+}
+
+.your-turn-frame {
+  position: fixed;
+  inset: 0;
+  z-index: 40;
+  pointer-events: none;
+  animation: turn-glow 1.8s ease-in-out infinite;
+}
+
+@keyframes turn-banner-in {
+  0% {
+    opacity: 0;
+    transform: translate(-50%, 24px) scale(0.8);
+  }
+  60% {
+    transform: translate(-50%, -4px) scale(1.05);
+  }
+  100% {
+    opacity: 1;
+    transform: translate(-50%, 0) scale(1);
+  }
+}
+
+.your-turn-banner {
+  position: fixed;
+  bottom: 1.5rem;
+  left: 50%;
+  transform: translateX(-50%);
+  z-index: 41;
+  pointer-events: none;
+  animation: turn-banner-in 0.5s cubic-bezier(0.22, 1, 0.36, 1) both;
+}
+
+/* Sidebar highlight for the player who is currently guessing */
+@keyframes soft-pulse {
+  0%,
+  100% {
+    box-shadow: 0 0 12px 2px rgba(74, 222, 128, 0.5);
+  }
+  50% {
+    box-shadow: 0 0 22px 6px rgba(74, 222, 128, 0.85);
+  }
+}
+
+.guessing-glow {
+  animation: soft-pulse 1.6s ease-in-out infinite;
+}
+
+@media (prefers-reduced-motion: reduce) {
+  .phase-enter,
+  .banner-pop,
+  .fade-in,
+  .card-deal,
+  .reveal-shine::before,
+  .your-turn-frame,
+  .your-turn-banner,
+  .guessing-glow {
+    animation: none;
+  }
+
+  .card-flip {
+    transition: none;
+  }
+}

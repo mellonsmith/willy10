@@ -17,7 +17,8 @@ defmodule WillyWeb.Router do
   scope "/", WillyWeb do
     pipe_through :browser
 
-    live "/", WordGameLive, :index
+    live "/", LobbyLive, :index
+    live "/g/:code", WordGameLive, :play
   end
 
   # Other scopes may use custom stacks.

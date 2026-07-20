@@ -10,9 +10,7 @@ defmodule WillyWeb.Application do
     children = [
       WillyWeb.Telemetry,
       # Start the Endpoint (http/https)
-      WillyWeb.Endpoint,
-      # Start the game state process
-      WillyWeb.GameState
+      WillyWeb.Endpoint
     ]
 
     # See https://hexdocs.pm/elixir/Supervisor.html

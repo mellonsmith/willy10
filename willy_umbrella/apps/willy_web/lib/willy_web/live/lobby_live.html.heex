@@ -1,0 +1,56 @@
+<div class="min-h-screen text-white flex items-center justify-center p-8" id="lobby-session" phx-hook="LobbySession">
+  <div class="max-w-2xl w-full phase-enter">
+    <div class="bg-gradient-to-r from-yellow-400 via-red-500 to-pink-500 py-8 rounded-3xl mb-8 shadow-2xl">
+      <h1 class="font-logo text-7xl text-center text-white drop-shadow-lg tracking-wider">
+        Willy 10
+      </h1>
+      <p class="mt-3 text-center text-xl font-bold text-white/90">
+        The word association party game
+      </p>
+    </div>
+
+    <!-- Create a lobby -->
+    <div class="p-8 bg-gradient-to-r from-purple-600 to-purple-800 rounded-3xl shadow-2xl border-4 border-purple-400 mb-8">
+      <h2 class="font-black mb-6 text-3xl text-center text-yellow-300">👑 Create a Lobby</h2>
+      <.form :let={_f} for={%{}} phx-submit="create_lobby">
+        <input
+          name="nickname"
+          type="text"
+          placeholder="Enter your nickname"
+          required
+          maxlength="20"
+          autocomplete="off"
+          class="mb-6 block w-full rounded-2xl border-4 border-yellow-400 px-6 py-4 text-2xl font-bold text-gray-900 shadow-lg focus:outline-none focus:ring-4 focus:ring-yellow-300"
+        />
+        <button class="w-full bg-gradient-to-r from-yellow-500 to-orange-600 hover:from-yellow-600 hover:to-orange-700 text-white px-8 py-4 rounded-2xl text-2xl font-black shadow-xl transform hover:scale-105 transition-all">
+          🚀 Create &amp; Host
+        </button>
+        <p class="mt-3 text-sm text-center font-bold text-purple-200">
+          You become the host and get a code + link to share.
+        </p>
+      </.form>
+    </div>
+
+    <!-- Join with a code -->
+    <div class="p-8 bg-gradient-to-r from-blue-600 to-blue-800 rounded-3xl shadow-2xl border-4 border-blue-400">
+      <h2 class="font-black mb-6 text-3xl text-center text-yellow-300">🔑 Join with a Code</h2>
+      <.form :let={_f} for={%{}} phx-submit="join_lobby">
+        <input
+          name="code"
+          type="text"
+          placeholder="ABCD"
+          required
+          maxlength="8"
+          autocomplete="off"
+          class="mb-6 block w-full rounded-2xl border-4 border-yellow-400 px-6 py-4 text-3xl font-black text-gray-900 text-center tracking-[0.5em] uppercase shadow-lg focus:outline-none focus:ring-4 focus:ring-yellow-300"
+        />
+        <button class="w-full bg-gradient-to-r from-green-500 to-green-700 hover:from-green-600 hover:to-green-800 text-white px-8 py-4 rounded-2xl text-2xl font-black shadow-xl transform hover:scale-105 transition-all">
+          🎮 Join Lobby
+        </button>
+        <p class="mt-3 text-sm text-center font-bold text-blue-200">
+          Also works to rejoin a running game if you got disconnected.
+        </p>
+      </.form>
+    </div>
+  </div>
+</div>

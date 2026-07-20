@@ -1,8 +1,8 @@
 defmodule WillyWeb.PageControllerTest do
   use WillyWeb.ConnCase
 
-  test "GET /", %{conn: conn} do
+  test "GET / renders the game", %{conn: conn} do
     conn = get(conn, ~p"/")
-    assert html_response(conn, 200) =~ "Peace of mind from prototype to production"
+    assert html_response(conn, 200) =~ "Willy 10"
   end
 end
