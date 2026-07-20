@@ -351,15 +351,9 @@
                   <% :guessing -> %>
                     🎯 Guessing Phase
                     <%= if @current_guessing_player do %>
-                      <%= if @current_guessing_player == @player_id do %>
-                        <span class="block mt-2 text-3xl text-white drop-shadow-lg">
-                          It's YOUR turn to guess!
-                        </span>
-                      <% else %>
-                        <span class="block mt-2 text-3xl">
-                          <%= @players[@current_guessing_player].name %> is guessing!
-                        </span>
-                      <% end %>
+                      <span class="block mt-2 text-3xl">
+                        <%= @players[@current_guessing_player].name %><%= if @current_guessing_player == @player_id, do: " (You)" %> is guessing!
+                      </span>
                     <% end %>
                   <% :revealing -> %>
                     🎉 Revealing Phase
@@ -529,11 +523,17 @@
 
     <!-- Your Turn Overlay -->
     <%= if @game_status == :in_progress and @current_phase == :guessing and @current_guessing_player == @player_id do %>
-      <div id="your-turn-frame" class="your-turn-frame"></div>
+      <div id="your-turn-frame" class={["your-turn-frame", @timer_state == :running && "timer-running"]}></div>
       <div id="your-turn-banner" class="your-turn-banner">
-        <div class="flex items-center gap-3 bg-gradient-to-r from-green-500 to-emerald-600 border-4 border-green-300 text-white text-2xl font-black px-8 py-3 rounded-full shadow-2xl">
-          <span class="text-3xl">🎯</span> Your turn — find the words!
-        </div>
+        <%= if @timer_state == :running do %>
+          <div class="flex items-center gap-3 bg-gradient-to-r from-red-500 to-rose-600 border-4 border-red-300 text-white text-2xl font-black px-8 py-3 rounded-full shadow-2xl">
+            <span class="text-3xl">⏱️</span> Your turn — find the words!
+          </div>
+        <% else %>
+          <div class="flex items-center gap-3 bg-gradient-to-r from-green-500 to-emerald-600 border-4 border-green-300 text-white text-2xl font-black px-8 py-3 rounded-full shadow-2xl">
+            <span class="text-3xl">🎯</span> Your turn — get ready!
+          </div>
+        <% end %>
       </div>
     <% end %>
 

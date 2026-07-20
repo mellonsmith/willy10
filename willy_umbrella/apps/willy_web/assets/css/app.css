@@ -167,6 +167,25 @@
   animation: turn-glow 1.8s ease-in-out infinite;
 }
 
+/* Once the host starts the timer, the frame switches to an urgent red */
+@keyframes turn-glow-running {
+  0%,
+  100% {
+    box-shadow:
+      inset 0 0 0 5px rgba(239, 68, 68, 0.85),
+      inset 0 0 60px 12px rgba(239, 68, 68, 0.3);
+  }
+  50% {
+    box-shadow:
+      inset 0 0 0 9px rgba(239, 68, 68, 1),
+      inset 0 0 100px 26px rgba(239, 68, 68, 0.55);
+  }
+}
+
+.your-turn-frame.timer-running {
+  animation: turn-glow-running 1s ease-in-out infinite;
+}
+
 @keyframes turn-banner-in {
   0% {
     opacity: 0;
@@ -213,6 +232,7 @@
   .card-deal,
   .reveal-shine::before,
   .your-turn-frame,
+  .your-turn-frame.timer-running,
   .your-turn-banner,
   .guessing-glow {
     animation: none;
