@@ -5,6 +5,47 @@ import Config
 # system starts, so it is typically used to load production configuration
 # and secrets from environment variables or elsewhere. Do not define
 # any compile-time configuration in here, as it won't be applied.
+
+# ---------------------------------------------------------------------------
+# Load a local `.env` file (if present) into the process environment. This is
+# a convenience for local development and self-hosting; in a typical release
+# real environment variables are set by the platform and no `.env` exists.
+# Real environment variables always win over values from the file.
+# ---------------------------------------------------------------------------
+env_file = Path.expand("../.env", __DIR__)
+
+if File.exists?(env_file) do
+  for line <- File.stream!(env_file) do
+    line = String.trim(line)
+
+    if line != "" and not String.starts_with?(line, "#") do
+      case String.split(line, "=", parts: 2) do
+        [key, value] ->
+          key = String.trim(key)
+          value = value |> String.trim() |> String.trim("\"") |> String.trim("'")
+          if System.get_env(key) in [nil, ""], do: System.put_env(key, value)
+
+        _ ->
+          :ok
+      end
+    end
+  end
+end
+
+# ---------------------------------------------------------------------------
+# Public URL of the app. Used both to serve requests and — via `url/1` in the
+# LiveViews — to build the shareable lobby links, so the invite link always
+# points at PHX_HOST instead of whatever host the browser happens to use.
+# ---------------------------------------------------------------------------
+url_host = System.get_env("PHX_HOST") || "localhost"
+url_scheme = System.get_env("PHX_SCHEME") || "http"
+
+url_port =
+  (System.get_env("PHX_URL_PORT") || System.get_env("PORT") || "4000")
+  |> String.to_integer()
+
+config :willy_web, WillyWeb.Endpoint, url: [host: url_host, scheme: url_scheme, port: url_port]
+
 # The block below contains prod specific runtime configuration.
 if config_env() == :prod do
   # The secret key base is used to sign/encrypt cookies and other secrets.
@@ -19,11 +60,11 @@ if config_env() == :prod do
       You can generate one by calling: mix phx.gen.secret
       """
 
-  host = System.get_env("PHX_HOST") || "example.com"
   port = String.to_integer(System.get_env("PORT") || "4000")
 
+  # The public URL (host/scheme/port) is configured above from PHX_HOST /
+  # PHX_SCHEME / PHX_URL_PORT so it also drives the shareable lobby links.
   config :willy_web, WillyWeb.Endpoint,
-    url: [host: host, port: 443, scheme: "https"],
     http: [
       # Enable IPv6 and bind on all interfaces.
       # Set it to  {0, 0, 0, 0, 0, 0, 0, 1} for local network only access.
